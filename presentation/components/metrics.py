@@ -11,6 +11,107 @@ from datetime import datetime, timedelta
 from core.models import WalletResponse, OrderResponse, TradeResponse
 
 
+def render_ai_evaluation_card(
+    evaluation: Dict,
+    title: str = "AI 평가"
+) -> None:
+    """
+    AI 평가 결과 카드
+
+    Args:
+        evaluation: AI 평가 결과
+        title: 카드 제목
+    """
+    recommendation = evaluation.get("recommendation", "hold")
+    confidence = evaluation.get("confidence", 50)
+    reasoning = evaluation.get("reasoning", "N/A")
+    warnings = evaluation.get("warnings", "")
+
+    # 추천에 따른 색상
+    rec_color = {
+        "buy": "#4ECDC4",
+        "sell": "#FF6B6B",
+        "hold": "#FFE66D"
+    }.get(recommendation, "#9ca3af")
+
+    rec_text = {
+        "buy": "매수",
+        "sell": "매도",
+        "hold": "보류"
+    }.get(recommendation, recommendation.upper())
+
+    # Fallback 정보
+    fallback_used = evaluation.get("_fallback_used", False)
+    model_used = evaluation.get("_model_used", "")
+
+    st.markdown(f"""
+    <div style="
+        background: linear-gradient(135deg, #2a2a2a 0%, #1a1a1a 100%);
+        border-radius: 8px;
+        padding: 16px;
+        border: 1px solid #404040;
+        margin-bottom: 12px;
+    ">
+        <div style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        ">
+            <div style="font-size: 1rem; font-weight: 600; color: #FAFAFA;">
+                {title}
+            </div>
+            <div style="
+                background-color: {rec_color};
+                color: #1E1E1E;
+                padding: 4px 12px;
+                border-radius: 4px;
+                font-weight: 700;
+                font-size: 0.9rem;
+            ">
+                {rec_text}
+            </div>
+        </div>
+        <div style="margin-bottom: 8px;">
+            <div style="font-size: 0.75rem; color: #9ca3af; margin-bottom: 4px;">
+                확신도
+            </div>
+            <div style="
+                background-color: #262730;
+                border-radius: 4px;
+                height: 24px;
+                position: relative;
+                overflow: hidden;
+            ">
+                <div style="
+                    background: linear-gradient(90deg, {rec_color} 0%, {rec_color}AA 100%);
+                    height: 100%;
+                    width: {confidence}%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: #FAFAFA;
+                    font-size: 0.75rem;
+                    font-weight: 600;
+                ">
+                    {confidence}%
+                </div>
+            </div>
+        </div>
+        <div style="margin-bottom: 8px;">
+            <div style="font-size: 0.75rem; color: #9ca3af; margin-bottom: 4px;">
+                분석
+            </div>
+            <div style="font-size: 0.85rem; color: #FAFAFA; line-height: 1.4;">
+                {reasoning}
+            </div>
+        </div>
+        {"<div style='margin-bottom: 8px; background-color: #00CCAC20; border-left: 3px solid #00CCAC; padding: 12px; border-radius: 4px;'><div style='font-size: 0.75rem; color: #00CCAC; margin-bottom: 4px; font-weight: 600;'>⚠️ 주의사항</div><div style='font-size: 0.85rem; color: #FAFAFA; line-height: 1.4;'>" + warnings + "</div></div>" if warnings else ""}
+        {"<div style='font-size: 0.7rem; color: #9ca3af; margin-top: 8px;'>🔄 Fallback 모델 사용: " + model_used + "</div>" if fallback_used else ""}
+    </div>
+    """, unsafe_allow_html=True)
+
+
 def display_wallet_metrics(wallet: WalletResponse) -> None:
     """
     지갑 메트릭 표시
@@ -22,14 +123,14 @@ def display_wallet_metrics(wallet: WalletResponse) -> None:
 
     with col1:
         st.metric(
-            label="💰 원화 잔고",
+            label="원화 잔고",
             value=f"₩{wallet.balance_krw:,.0f}",
             help="현재 보유 원화"
         )
 
     with col2:
         st.metric(
-            label="📊 총 자산",
+            label="총 자산",
             value=f"₩{wallet.total_value_krw:,.0f}",
             help="원화 + 코인 평가액"
         )
@@ -41,7 +142,7 @@ def display_wallet_metrics(wallet: WalletResponse) -> None:
         profit_rate = (profit / initial_balance) * 100 if initial_balance > 0 else Decimal("0")
 
         st.metric(
-            label="💹 수익률",
+            label="수익률",
             value=f"{profit_rate:+.2f}%",
             delta=f"₩{profit:+,.0f}",
             delta_color="normal",
@@ -50,7 +151,7 @@ def display_wallet_metrics(wallet: WalletResponse) -> None:
 
     with col4:
         st.metric(
-            label="📁 지갑 유형",
+            label="지갑 유형",
             value="가상" if wallet.wallet_type.value == "virtual" else "실거래",
             help="지갑 타입"
         )
@@ -75,21 +176,21 @@ def display_trading_metrics(
 
     with col1:
         st.metric(
-            label="📈 총 거래",
+            label="총 거래",
             value=f"{total_trades}회",
             help="총 거래 횟수"
         )
 
     with col2:
         st.metric(
-            label="🎯 승률",
+            label="승률",
             value=f"{win_rate:.1f}%",
             help="수익 거래 비율"
         )
 
     with col3:
         st.metric(
-            label="💵 평균 수익",
+            label="평균 수익",
             value=f"₩{avg_profit:+,.0f}",
             delta_color="off",
             help="거래당 평균 수익"
@@ -97,7 +198,7 @@ def display_trading_metrics(
 
     with col4:
         st.metric(
-            label="💰 총 수익",
+            label="총 수익",
             value=f"₩{total_profit:+,.0f}",
             delta_color="normal" if total_profit >= 0 else "inverse",
             help="누적 수익"
@@ -123,28 +224,28 @@ def display_strategy_metrics(
 
     with col1:
         st.metric(
-            label="🎯 총 전략",
+            label="총 전략",
             value=f"{total_strategies}개",
             help="등록된 전략 수"
         )
 
     with col2:
         st.metric(
-            label="⚡ 활성 전략",
+            label="활성 전략",
             value=f"{active_strategies}개",
             help="현재 활성화된 전략"
         )
 
     with col3:
         st.metric(
-            label="📡 시그널",
+            label="시그널",
             value=f"{total_signals}개",
             help="생성된 시그널 수"
         )
 
     with col4:
         st.metric(
-            label="🎲 정확도",
+            label="정확도",
             value=f"{signal_accuracy:.1f}%",
             help="시그널 정확도"
         )
@@ -169,14 +270,14 @@ def display_market_metrics(
 
     with col1:
         st.metric(
-            label="💱 현재가",
+            label="현재가",
             value=f"₩{current_price:,.0f}",
             help="실시간 가격"
         )
 
     with col2:
         st.metric(
-            label="📊 24h 변동",
+            label="24h 변동",
             value=f"{price_change_24h:+.2f}%",
             delta=f"{price_change_24h:+.2f}%",
             delta_color="normal",
@@ -185,7 +286,7 @@ def display_market_metrics(
 
     with col3:
         st.metric(
-            label="📈 24h 거래량",
+            label="24h 거래량",
             value=f"₩{volume_24h:,.0f}",
             help="24시간 거래량"
         )
@@ -193,13 +294,13 @@ def display_market_metrics(
     with col4:
         if market_cap:
             st.metric(
-                label="🏦 시가총액",
+                label="시가총액",
                 value=f"₩{market_cap:,.0f}",
                 help="시가총액"
             )
         else:
             st.metric(
-                label="🏦 시가총액",
+                label="시가총액",
                 value="N/A",
                 help="시가총액 정보 없음"
             )
@@ -212,15 +313,6 @@ def display_order_status_badge(status: str) -> None:
     Args:
         status: 주문 상태
     """
-    status_colors = {
-        "pending": "🟡",
-        "submitted": "🔵",
-        "filled": "🟢",
-        "cancelled": "⚫",
-        "rejected": "🔴",
-        "partial": "🟠"
-    }
-
     status_text = {
         "pending": "대기",
         "submitted": "제출",
@@ -230,10 +322,9 @@ def display_order_status_badge(status: str) -> None:
         "partial": "부분체결"
     }
 
-    icon = status_colors.get(status, "⚪")
     text = status_text.get(status, status)
 
-    st.markdown(f"{icon} **{text}**")
+    st.markdown(f"**{text}**")
 
 
 def display_signal_badge(signal: str, confidence: float) -> None:
@@ -244,23 +335,16 @@ def display_signal_badge(signal: str, confidence: float) -> None:
         signal: 시그널 (buy/sell/hold)
         confidence: 확신도 (0~1)
     """
-    signal_colors = {
-        "buy": "🟢",
-        "sell": "🔴",
-        "hold": "🟡"
-    }
-
     signal_text = {
         "buy": "매수",
         "sell": "매도",
         "hold": "관망"
     }
 
-    icon = signal_colors.get(signal, "⚪")
     text = signal_text.get(signal, signal)
     confidence_pct = confidence * 100
 
-    st.markdown(f"{icon} **{text}** ({confidence_pct:.1f}%)")
+    st.markdown(f"**{text}** ({confidence_pct:.1f}%)")
 
 
 def display_performance_summary(
@@ -309,7 +393,7 @@ def display_performance_summary(
     win_rate = (wins / len(sell_trades) * 100) if sell_trades else 0
 
     # 표시
-    st.subheader(f"📊 최근 {days}일 성과")
+    st.subheader(f"최근 {days}일 성과")
 
     col1, col2, col3 = st.columns(3)
 
@@ -392,7 +476,7 @@ def display_recent_trades_table(
         {
             "시간": t.created_at.strftime("%Y-%m-%d %H:%M:%S"),
             "심볼": t.symbol,
-            "구분": "🟢 매수" if t.side.value == "buy" else "🔴 매도",
+            "구분": "매수" if t.side.value == "buy" else "매도",
             "수량": f"{float(t.quantity):.8f}",
             "가격": f"₩{float(t.price):,.0f}",
             "금액": f"₩{float(t.total_amount):,.0f}",

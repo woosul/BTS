@@ -1,0 +1,10 @@
+[theme]
+# Use dark theme base
+base = "dark"
+
+# Primary accent color for interactive elements
+primaryColor = "#54A0FD"
+
+# Font family for all text in the app, except code blocks
+# Accepts any CSS font-family value
+font = "'Noto Sans KR', sans-serif"

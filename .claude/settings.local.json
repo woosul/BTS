@@ -6,7 +6,17 @@
       "Bash(pip install:*)",
       "Bash(alembic revision:*)",
       "Bash(sqlite3:*)",
-      "Bash(tree:*)"
+      "Bash(tree:*)",
+      "Bash(mkdir:*)",
+      "Bash(streamlit run:*)",
+      "Bash(STREAMLIT_EMAIL=\"\" streamlit run presentation/streamlit_app.py --server.headless=true)",
+      "Bash(.venv/bin/python -m streamlit run:*)",
+      "Bash(.venv/bin/python:*)",
+      "Bash(pkill:*)",
+      "Bash(/Users/denny/Gaia/30_Share/33_DEVELOPMENT/BTS/.venv/bin/python -m streamlit run /Users/denny/Gaia/30_Share/33_DEVELOPMENT/BTS/presentation/streamlit_app.py --server.headless=true)",
+      "Bash(find:*)",
+      "Bash(STREAMLIT_EMAIL=\"\" .venv/bin/python -m streamlit run presentation/streamlit_app.py --server.headless=true)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

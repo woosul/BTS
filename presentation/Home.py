@@ -21,16 +21,161 @@ from application.services.strategy_service import StrategyService
 from infrastructure.exchanges.upbit_client import UpbitClient
 from config.settings import settings
 from utils.logger import get_logger
+from presentation.components.cards import render_wallet_card
 
 logger = get_logger(__name__)
 
 # 페이지 설정
 st.set_page_config(
-    page_title="BTS - Bitcoin Auto Trading",
-    page_icon="🤖",
+    page_title="BTS | Bitcoin Trading System",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# 사이드바 로고 설정
+logo_path = str(project_root / "resource" / "image" / "peaknine_logo_01.svg")
+icon_path = str(project_root / "resource" / "image" / "peaknine_02.png")
+st.logo(
+    image=logo_path,
+    icon_image=icon_path
+)
+
+# 로고 크기 조정 및 메뉴 스타일
+st.markdown("""
+<style>
+    /* Noto Sans KR 폰트 로드 */
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap');
+    /* Bootstrap Icons 로드 */
+    @import url('https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css');
+    /* Material Icons 로드 */
+    @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
+
+    /* 전체 폰트 적용 (아이콘 제외) */
+    html, body, [class*="css"] {
+        font-family: 'Noto Sans KR', sans-serif !important;
+    }
+
+    /* Streamlit 내부 요소 폰트 적용 */
+    p, h1, h2, h3, h4, h5, h6, label, input, textarea, select, button,
+    [data-testid] div, [data-testid] span, [data-testid] p,
+    .stMarkdown, .stText, .stCaption {
+        font-family: 'Noto Sans KR', sans-serif !important;
+    }
+
+    /* Material Icons 요소는 원래 폰트 유지 */
+    .material-symbols-outlined,
+    [class*="material-icons"],
+    span[data-testid*="stIcon"],
+    button span,
+    [role="button"] span {
+        font-family: 'Material Symbols Outlined', 'Material Icons' !important;
+    }
+
+    /* 로고 영역 스타일 */
+    [data-testid="stSidebarNav"] {
+        padding-top: 0 !important;
+    }
+
+    /* 로고 컨테이너 */
+    [data-testid="stSidebarNav"] > div:first-child {
+        padding: 1.5rem 1rem !important;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        width: 100% !important;
+    }
+
+    /* 로고 링크 영역 */
+    [data-testid="stSidebarNav"] a {
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        width: 100% !important;
+    }
+
+    /* 로고 이미지 크기 */
+    [data-testid="stSidebarNav"] img {
+        width: 95% !important;
+        max-width: 400px !important;
+        height: auto !important;
+    }
+
+    /* 네비게이션 메뉴와 로고 사이 간격 */
+    [data-testid="stSidebarNav"] ul {
+        margin-top: 1rem !important;
+    }
+
+    /* 메뉴명 좌측 정렬 */
+    [data-testid="stSidebarNav"] ul li a {
+        text-align: left !important;
+        justify-content: flex-start !important;
+    }
+
+    /* 선택된 메뉴 스타일 */
+    [data-testid="stSidebarNav"] ul li a[aria-current="page"] {
+        background-color: #54A0FD !important;
+        font-weight: 600 !important;
+        border-radius: 4px !important;
+    }
+
+    /* 페이지 폰트 및 여백 통일 */
+    h1 {
+        font-size: 1.8rem !important;
+        margin-top: 0.5rem !important;
+        margin-bottom: 0.5rem !important;
+    }
+    h2 {
+        font-size: 1.3rem !important;
+        margin-top: 0.8rem !important;
+        margin-bottom: 0.5rem !important;
+    }
+    h3 {
+        font-size: 1.1rem !important;
+        margin-top: 0.6rem !important;
+        margin-bottom: 0.4rem !important;
+    }
+    hr {
+        margin-top: 0.8rem !important;
+        margin-bottom: 0.8rem !important;
+    }
+    .block-container {
+        padding-top: 2rem !important;
+        padding-bottom: 1rem !important;
+    }
+
+    /* 셀렉트박스 폰트 크기 조정 */
+    [data-testid="stSelectbox"] label {
+        font-size: 0.875rem !important;
+    }
+    [data-testid="stSelectbox"] div[data-baseweb="select"] {
+        font-size: 0.875rem !important;
+    }
+    [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
+        font-size: 0.875rem !important;
+    }
+
+    /* 드롭다운 메뉴 폰트 크기 조정 */
+    ul[role="listbox"] li {
+        font-size: 0.875rem !important;
+    }
+    div[role="listbox"] div {
+        font-size: 0.875rem !important;
+    }
+
+    /* 상단 더보기 메뉴 폰트 크기 */
+    [data-testid="stAppViewBlockContainer"] button[kind="header"] {
+        font-size: 0.875rem !important;
+    }
+    div[data-baseweb="popover"] ul li {
+        font-size: 0.875rem !important;
+    }
+    div[data-baseweb="popover"] button {
+        font-size: 0.875rem !important;
+    }
+
+</style>
+""", unsafe_allow_html=True)
 
 # 세션 상태 초기화
 def init_session_state():
@@ -49,8 +194,8 @@ def get_services():
     if not st.session_state.services_initialized:
         try:
             # DB 세션 생성
-            db_gen = get_db_session()
-            db = next(db_gen)
+            from infrastructure.database.connection import SessionLocal
+            db = SessionLocal()
             st.session_state.db = db
 
             # 거래소 클라이언트
@@ -83,7 +228,7 @@ def main():
     init_session_state()
 
     # 헤더
-    st.title("🤖 BTS - Bitcoin Auto Trading System")
+    st.title("BTS - Bitcoin Auto Trading System")
     st.markdown("---")
 
     # 서비스 초기화
@@ -95,7 +240,7 @@ def main():
 
     # 사이드바: 지갑 선택
     with st.sidebar:
-        st.header("⚙️ 설정")
+        st.header("설정")
 
         # 지갑 목록 조회
         try:
@@ -137,9 +282,43 @@ def main():
 
         st.markdown("---")
 
+        # AI 설정
+        st.subheader("AI 설정")
+
+        # AI 제공자 선택
+        current_provider = settings.ai_provider
+        ai_provider = st.selectbox(
+            "AI 제공자",
+            options=["claude", "openai"],
+            index=0 if current_provider == "claude" else 1,
+            format_func=lambda x: "Claude (Anthropic)" if x == "claude" else "OpenAI (GPT)",
+            key="ai_provider_selector",
+            help="AI 평가에 사용할 제공자를 선택하세요"
+        )
+
+        # 세션 상태에 저장
+        if 'ai_provider' not in st.session_state or st.session_state.ai_provider != ai_provider:
+            st.session_state.ai_provider = ai_provider
+
+        # 선택된 제공자의 모델 정보 표시
+        if ai_provider == "claude":
+            st.caption(f"모델: {settings.claude_model}")
+            st.caption(f"Fallback: {settings.claude_fallback_model}")
+            api_key_status = "✓" if settings.claude_api_key else "✗"
+            st.caption(f"API 키: {api_key_status}")
+        else:
+            st.caption(f"모델: {settings.openai_model}")
+            st.caption(f"Fallback: {settings.openai_fallback_model}")
+            api_key_status = "✓" if settings.openai_api_key else "✗"
+            st.caption(f"API 키: {api_key_status}")
+
+        st.caption(f"캐시: {'ON' if settings.ai_cache_enabled else 'OFF'} ({settings.ai_cache_ttl_minutes}분)")
+
+        st.markdown("---")
+
         # 시스템 정보
-        st.subheader("📊 시스템 정보")
-        st.caption(f"환경: {settings.environment}")
+        st.subheader("시스템 정보")
+        st.caption(f"거래 모드: {settings.trading_mode}")
         st.caption(f"로그 레벨: {settings.log_level}")
 
         # 거래소 연결 상태
@@ -147,24 +326,24 @@ def main():
             from infrastructure.exchanges.upbit_client import UpbitClient
             upbit = UpbitClient()
             if upbit.check_connection():
-                st.success("✅ Upbit 연결")
+                st.success("Upbit 연결")
             else:
-                st.error("❌ Upbit 연결 실패")
+                st.error("Upbit 연결 실패")
         except:
-            st.warning("⚠️ Upbit 연결 확인 불가")
+            st.warning("Upbit 연결 확인 불가")
 
     # 메인 컨텐츠
     if not st.session_state.selected_wallet:
-        st.info("👈 사이드바에서 지갑을 선택하거나 생성하세요.")
+        st.info("사이드바에서 지갑을 선택하거나 생성하세요.")
 
         # 빠른 시작 가이드
-        st.subheader("🚀 빠른 시작 가이드")
+        st.subheader("빠른 시작 가이드")
 
         col1, col2, col3 = st.columns(3)
 
         with col1:
             st.markdown("""
-            ### 1️⃣ 지갑 생성
+            ### 1. 지갑 생성
             - 가상지갑 또는 실거래 지갑 생성
             - 초기 자본금 설정
             - 거래소 API 연동 (실거래용)
@@ -172,7 +351,7 @@ def main():
 
         with col2:
             st.markdown("""
-            ### 2️⃣ 전략 설정
+            ### 2. 전략 설정
             - RSI, MA Cross, Bollinger 등
             - 파라미터 조정
             - 백테스팅으로 검증
@@ -180,7 +359,7 @@ def main():
 
         with col3:
             st.markdown("""
-            ### 3️⃣ 자동매매 시작
+            ### 3. 자동매매 시작
             - 전략 활성화
             - 실시간 시그널 모니터링
             - 거래 내역 확인
@@ -189,14 +368,14 @@ def main():
         st.markdown("---")
 
         # 시스템 기능 소개
-        st.subheader("💡 주요 기능")
+        st.subheader("주요 기능")
 
         features = [
-            ("📈 대시보드", "지갑 현황, 수익률, 최근 거래 한눈에 보기"),
-            ("⚙️ 전략 설정", "다양한 트레이딩 전략 생성 및 관리"),
-            ("💰 가상지갑", "안전한 모의투자로 전략 테스트"),
-            ("📊 백테스팅", "과거 데이터로 전략 성과 검증"),
-            ("📉 실시간 분석", "시장 데이터 및 시그널 모니터링")
+            ("대시보드", "지갑 현황, 수익률, 최근 거래 한눈에 보기"),
+            ("전략 설정", "다양한 트레이딩 전략 생성 및 관리"),
+            ("가상지갑", "안전한 모의투자로 전략 테스트"),
+            ("백테스팅", "과거 데이터로 전략 성과 검증"),
+            ("실시간 분석", "시장 데이터 및 시그널 모니터링")
         ]
 
         for feature, description in features:
@@ -207,37 +386,19 @@ def main():
         try:
             wallet = wallet_service.get_wallet(st.session_state.selected_wallet)
 
-            st.subheader(f"💰 {wallet.name}")
-
-            col1, col2, col3 = st.columns(3)
-
-            with col1:
-                st.metric(
-                    "원화 잔고",
-                    f"₩{wallet.balance_krw:,.0f}",
-                    delta=None
-                )
-
-            with col2:
-                st.metric(
-                    "총 자산",
-                    f"₩{wallet.total_value_krw:,.0f}",
-                    delta=None
-                )
-
-            with col3:
-                profit = wallet.total_value_krw - Decimal("10000000")  # 초기 자본 대비
-                profit_rate = (profit / Decimal("10000000")) * 100
-                st.metric(
-                    "수익률",
-                    f"{profit_rate:+.2f}%",
-                    delta=f"₩{profit:+,.0f}"
-                )
+            # 지갑 카드 표시
+            wallet_type_text = "가상" if wallet.wallet_type.value == "virtual" else "실거래"
+            render_wallet_card(
+                title=wallet.name,
+                balance=wallet.balance_krw,
+                total_value=wallet.total_value_krw,
+                wallet_type=wallet_type_text
+            )
 
             st.markdown("---")
 
             # 탭: 주문/전략/거래내역
-            tab1, tab2, tab3 = st.tabs(["📋 주문하기", "🎯 활성 전략", "📜 거래 내역"])
+            tab1, tab2, tab3 = st.tabs(["주문하기", "활성 전략", "거래 내역"])
 
             with tab1:
                 st.subheader("주문 생성")
@@ -300,7 +461,7 @@ def main():
 
                     if active_strategies:
                         for strategy in active_strategies:
-                            with st.expander(f"🎯 {strategy.name}"):
+                            with st.expander(f"{strategy.name}"):
                                 st.write(f"**설명**: {strategy.description}")
                                 st.write(f"**시간프레임**: {strategy.timeframe.value}")
                                 st.write(f"**파라미터**: {strategy.parameters}")

@@ -107,6 +107,37 @@ class UpbitClient(BaseExchange):
                 {"error": str(e)}
             )
 
+    def get_market_symbols(self, market: str = "KRW") -> List[str]:
+        """
+        특정 마켓의 심볼 목록 조회
+
+        Args:
+            market: 마켓 종류 (KRW, BTC, USDT 등)
+
+        Returns:
+            List[str]: 심볼 목록 (예: ["KRW-BTC", "KRW-ETH", ...])
+        """
+        try:
+            if market == "KRW":
+                symbols = pyupbit.get_tickers(fiat="KRW")
+            elif market == "BTC":
+                symbols = pyupbit.get_tickers(fiat="BTC")
+            elif market == "USDT":
+                symbols = pyupbit.get_tickers(fiat="USDT")
+            else:
+                # 기본적으로 KRW 마켓
+                symbols = pyupbit.get_tickers(fiat="KRW")
+
+            logger.info(f"{market} 마켓 심볼 {len(symbols)}개 조회")
+            return symbols
+
+        except Exception as e:
+            logger.error(f"마켓 심볼 목록 조회 실패: {e}")
+            raise ExchangeAPIError(
+                f"마켓 심볼 목록 조회 실패: {str(e)}",
+                {"market": market, "error": str(e)}
+            )
+
     def get_ticker(self, symbol: str) -> MarketPrice:
         """
         현재가 조회

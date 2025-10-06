@@ -46,10 +46,10 @@ def render_candlestick_chart(
     df = pd.DataFrame([
         {
             "timestamp": o.timestamp,
-            "open": float(o.open_price),
-            "high": float(o.high_price),
-            "low": float(o.low_price),
-            "close": float(o.close_price),
+            "open": float(o.open),
+            "high": float(o.high),
+            "low": float(o.low),
+            "close": float(o.close),
             "volume": float(o.volume)
         }
         for o in ohlcv_data
@@ -141,7 +141,7 @@ def render_indicator_chart(
     df = pd.DataFrame([
         {
             "timestamp": o.timestamp,
-            "close": float(o.close_price)
+            "close": float(o.close)
         }
         for o in ohlcv_data
     ])

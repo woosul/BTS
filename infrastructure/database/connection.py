@@ -47,15 +47,18 @@ def get_engine() -> Engine:
         # PostgreSQL 등 다른 DB 설정
         logger.info("PostgreSQL 데이터베이스 연결 설정")
 
+    # 절대 경로로 변환된 DB URL 사용
+    db_url = settings.get_absolute_database_url()
+
     engine = create_engine(
-        settings.database_url,
+        db_url,
         connect_args=connect_args,
         poolclass=poolclass,
         echo=settings.log_level == "DEBUG",  # 디버그 모드에서 SQL 쿼리 로깅
     )
 
     # SQLite WAL 모드 및 Foreign Key 활성화
-    if settings.database_url.startswith("sqlite"):
+    if db_url.startswith("sqlite"):
         @event.listens_for(engine, "connect")
         def set_sqlite_pragma(dbapi_conn, connection_record):
             """SQLite 연결 시 프라그마 설정"""
@@ -65,7 +68,7 @@ def get_engine() -> Engine:
             cursor.execute("PRAGMA synchronous=NORMAL")  # 성능 최적화
             cursor.close()
 
-    logger.info(f"데이터베이스 엔진 생성 완료: {settings.database_url}")
+    logger.info(f"데이터베이스 엔진 생성 완료: {db_url}")
     return engine
 
 
@@ -149,8 +152,9 @@ def check_database_connection() -> bool:
         bool: 연결 성공 여부
     """
     try:
+        from sqlalchemy import text
         with engine.connect() as conn:
-            conn.execute("SELECT 1")
+            conn.execute(text("SELECT 1"))
         logger.info("데이터베이스 연결 확인 성공")
         return True
     except Exception as e:

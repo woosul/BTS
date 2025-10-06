@@ -19,7 +19,6 @@ from application.services.trading_service import TradingService
 from application.services.strategy_service import StrategyService
 from infrastructure.exchanges.upbit_client import UpbitClient
 from presentation.components.metrics import (
-    display_wallet_metrics,
     display_trading_metrics,
     display_performance_summary,
     display_recent_trades_table
@@ -28,21 +27,115 @@ from presentation.components.charts import (
     render_profit_chart,
     render_candlestick_chart
 )
+from presentation.components.cards import render_wallet_card
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 st.set_page_config(
     page_title="대시보드 - BTS",
-    page_icon="📊",
+    page_icon="",
     layout="wide"
 )
+
+# 사이드바 로고 설정
+logo_path = str(project_root / "resource" / "image" / "peaknine_logo_01.svg")
+icon_path = str(project_root / "resource" / "image" / "peaknine_02.png")
+st.logo(
+    image=logo_path,
+    icon_image=icon_path
+)
+
+# 로고 크기 조정 및 메뉴 스타일
+st.markdown("""
+<style>
+    /* Noto Sans KR 폰트 로드 */
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap');
+    /* Bootstrap Icons 로드 */
+    @import url('https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css');
+    /* Material Icons 로드 */
+    @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
+
+    /* 전체 폰트 적용 (아이콘 제외) */
+    html, body, [class*="css"] {
+        font-family: 'Noto Sans KR', sans-serif !important;
+    }
+
+    /* Streamlit 내부 요소 폰트 적용 */
+    p, h1, h2, h3, h4, h5, h6, label, input, textarea, select, button,
+    [data-testid] div, [data-testid] span, [data-testid] p,
+    .stMarkdown, .stText, .stCaption {
+        font-family: 'Noto Sans KR', sans-serif !important;
+    }
+
+    /* Material Icons 요소는 원래 폰트 유지 */
+    .material-symbols-outlined,
+    [class*="material-icons"],
+    span[data-testid*="stIcon"],
+    button span,
+    [role="button"] span {
+        font-family: 'Material Symbols Outlined', 'Material Icons' !important;
+    }
+
+    [data-testid="stSidebarNav"] {
+        padding-top: 0 !important;
+    }
+    [data-testid="stSidebarNav"] > div:first-child {
+        padding: 1.5rem 1rem !important;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        width: 100% !important;
+    }
+    [data-testid="stSidebarNav"] a {
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        width: 100% !important;
+    }
+    [data-testid="stSidebarNav"] img {
+        width: 90% !important;
+        max-width: 280px !important;
+        height: auto !important;
+    }
+    [data-testid="stSidebarNav"] ul {
+        margin-top: 1rem !important;
+    }
+    [data-testid="stSidebarNav"] ul li a {
+        text-align: left !important;
+        justify-content: flex-start !important;
+    }
+    h1 {
+        font-size: 1.8rem !important;
+        margin-top: 0.5rem !important;
+        margin-bottom: 0.5rem !important;
+    }
+    h2 {
+        font-size: 1.3rem !important;
+        margin-top: 0.8rem !important;
+        margin-bottom: 0.5rem !important;
+    }
+    h3 {
+        font-size: 1.1rem !important;
+        margin-top: 0.6rem !important;
+        margin-bottom: 0.4rem !important;
+    }
+    hr {
+        margin-top: 0.8rem !important;
+        margin-bottom: 0.8rem !important;
+    }
+    .block-container {
+        padding-top: 2rem !important;
+        padding-bottom: 1rem !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 def get_services():
     """서비스 인스턴스 가져오기"""
     if 'db' not in st.session_state:
-        db_gen = get_db_session()
-        st.session_state.db = next(db_gen)
+        from infrastructure.database.connection import SessionLocal
+        st.session_state.db = SessionLocal()
 
     if 'wallet_service' not in st.session_state:
         st.session_state.wallet_service = WalletService(st.session_state.db)
@@ -62,7 +155,7 @@ def get_services():
     )
 
 def main():
-    st.title("📊 대시보드")
+    st.title("대시보드")
     st.markdown("---")
 
     # 서비스 초기화
@@ -92,9 +185,15 @@ def main():
         st.error(f"지갑 조회 실패: {e}")
         return
 
-    # 지갑 메트릭
-    st.subheader("💰 지갑 현황")
-    display_wallet_metrics(wallet)
+    # 지갑 현황 카드
+    st.subheader("지갑 현황")
+    wallet_type_text = "가상" if wallet.wallet_type.value == "virtual" else "실거래"
+    render_wallet_card(
+        title=wallet.name,
+        balance=wallet.balance_krw,
+        total_value=wallet.total_value_krw,
+        wallet_type=wallet_type_text
+    )
 
     st.markdown("---")
 
@@ -122,7 +221,7 @@ def main():
             win_rate = (wins / len(sell_trades) * 100) if sell_trades else 0
             avg_profit = total_profit / total_trades if total_trades > 0 else Decimal("0")
 
-            st.subheader("📈 트레이딩 통계")
+            st.subheader("트레이딩 통계")
             display_trading_metrics(
                 total_trades=total_trades,
                 win_rate=win_rate,
@@ -147,10 +246,10 @@ def main():
         col1, col2 = st.columns(2)
 
         with col1:
-            st.subheader("🎯 활성 전략")
+            st.subheader("활성 전략")
             if active_strategies:
                 for strategy in active_strategies:
-                    with st.expander(f"📌 {strategy.name}", expanded=False):
+                    with st.expander(f"{strategy.name}", expanded=False):
                         st.write(f"**설명**: {strategy.description}")
                         st.write(f"**시간프레임**: {strategy.timeframe.value}")
                         st.write(f"**파라미터**:")
@@ -160,7 +259,7 @@ def main():
                 st.info("활성화된 전략이 없습니다.")
 
         with col2:
-            st.subheader("📡 최근 시그널")
+            st.subheader("최근 시그널")
             if active_strategies:
                 # 첫 번째 활성 전략의 시그널 생성
                 try:
@@ -171,31 +270,24 @@ def main():
                     )
 
                     # 시그널 표시
-                    signal_colors = {
-                        "buy": "🟢",
-                        "sell": "🔴",
-                        "hold": "🟡"
-                    }
-
                     signal_text = {
                         "buy": "매수",
                         "sell": "매도",
                         "hold": "관망"
                     }
 
-                    icon = signal_colors.get(signal.signal.value, "⚪")
                     text = signal_text.get(signal.signal.value, signal.signal.value)
 
-                    st.markdown(f"### {icon} {text}")
+                    st.markdown(f"### {text}")
                     st.metric(
                         "확신도",
                         f"{signal.confidence * 100:.1f}%",
                         help="시그널 확신도"
                     )
 
-                    if signal.metadata:
-                        st.write("**메타데이터**:")
-                        for key, value in signal.metadata.items():
+                    if signal.indicators:
+                        st.write("**지표 데이터**:")
+                        for key, value in signal.indicators.items():
                             if isinstance(value, float):
                                 st.write(f"  - {key}: {value:.2f}")
                             else:
@@ -217,7 +309,7 @@ def main():
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("📊 가격 차트")
+        st.subheader("가격 차트")
         try:
             # Upbit에서 OHLCV 데이터 조회
             exchange = UpbitClient()
@@ -234,7 +326,7 @@ def main():
             st.error(f"차트 렌더링 실패: {e}")
 
     with col2:
-        st.subheader("💰 수익 차트")
+        st.subheader("수익 차트")
         try:
             if trades:
                 fig = render_profit_chart(trades, title="손익 추이", height=400)
@@ -255,7 +347,7 @@ def main():
     st.markdown("---")
 
     # 최근 거래 내역
-    st.subheader("📜 최근 거래 내역")
+    st.subheader("최근 거래 내역")
     if trades:
         display_recent_trades_table(trades, limit=10)
     else:

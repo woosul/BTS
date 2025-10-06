@@ -23,11 +23,11 @@ from presentation.components.forms import (
     render_order_form
 )
 from presentation.components.metrics import (
-    display_wallet_metrics,
     display_asset_table,
     display_recent_trades_table
 )
 from presentation.components.charts import render_portfolio_pie_chart
+from presentation.components.cards import render_wallet_card
 from core.enums import WalletType
 from utils.logger import get_logger
 
@@ -35,15 +35,109 @@ logger = get_logger(__name__)
 
 st.set_page_config(
     page_title="가상지갑 - BTS",
-    page_icon="💰",
+    page_icon="",
     layout="wide"
 )
+
+# 사이드바 로고 설정
+# 사이드바 로고 설정
+logo_path = str(project_root / "resource" / "image" / "peaknine_logo_01.svg")
+icon_path = str(project_root / "resource" / "image" / "peaknine_02.png")
+st.logo(
+    image=logo_path,
+    icon_image=logo_path
+)
+
+# 로고 크기 조정 및 메뉴 스타일
+st.markdown("""
+<style>
+    /* Noto Sans KR 폰트 로드 */
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap');
+    /* Bootstrap Icons 로드 */
+    @import url('https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css');
+    /* Material Icons 로드 */
+    @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
+
+    /* 전체 폰트 적용 (아이콘 제외) */
+    html, body, [class*="css"] {
+        font-family: 'Noto Sans KR', sans-serif !important;
+    }
+
+    /* Streamlit 내부 요소 폰트 적용 */
+    p, h1, h2, h3, h4, h5, h6, label, input, textarea, select, button,
+    [data-testid] div, [data-testid] span, [data-testid] p,
+    .stMarkdown, .stText, .stCaption {
+        font-family: 'Noto Sans KR', sans-serif !important;
+    }
+
+    /* Material Icons 요소는 원래 폰트 유지 */
+    .material-symbols-outlined,
+    [class*="material-icons"],
+    span[data-testid*="stIcon"],
+    button span,
+    [role="button"] span {
+        font-family: 'Material Symbols Outlined', 'Material Icons' !important;
+    }
+
+    [data-testid="stSidebarNav"] {
+        padding-top: 0 !important;
+    }
+    [data-testid="stSidebarNav"] > div:first-child {
+        padding: 1.5rem 1rem !important;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        width: 100% !important;
+    }
+    [data-testid="stSidebarNav"] a {
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        width: 100% !important;
+    }
+    [data-testid="stSidebarNav"] img {
+        width: 90% !important;
+        max-width: 280px !important;
+        height: auto !important;
+    }
+    [data-testid="stSidebarNav"] ul {
+        margin-top: 1rem !important;
+    }
+    [data-testid="stSidebarNav"] ul li a {
+        text-align: left !important;
+        justify-content: flex-start !important;
+    }
+    h1 {
+        font-size: 1.8rem !important;
+        margin-top: 0.5rem !important;
+        margin-bottom: 0.5rem !important;
+    }
+    h2 {
+        font-size: 1.3rem !important;
+        margin-top: 0.8rem !important;
+        margin-bottom: 0.5rem !important;
+    }
+    h3 {
+        font-size: 1.1rem !important;
+        margin-top: 0.6rem !important;
+        margin-bottom: 0.4rem !important;
+    }
+    hr {
+        margin-top: 0.8rem !important;
+        margin-bottom: 0.8rem !important;
+    }
+    .block-container {
+        padding-top: 2rem !important;
+        padding-bottom: 1rem !important;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 def get_services():
     """서비스 인스턴스 가져오기"""
     if 'db' not in st.session_state:
-        db_gen = get_db_session()
-        st.session_state.db = next(db_gen)
+        from infrastructure.database.connection import SessionLocal
+        st.session_state.db = SessionLocal()
 
     if 'wallet_service' not in st.session_state:
         st.session_state.wallet_service = WalletService(st.session_state.db)
@@ -58,14 +152,14 @@ def get_services():
     )
 
 def main():
-    st.title("💰 가상지갑")
+    st.title("가상지갑")
     st.markdown("---")
 
     # 서비스 초기화
     wallet_service, trading_service = get_services()
 
     # 탭: 지갑 관리 / 지갑 생성
-    tab1, tab2 = st.tabs(["📋 지갑 관리", "➕ 지갑 생성"])
+    tab1, tab2 = st.tabs(["지갑 관리", "지갑 생성"])
 
     # ===== 탭 1: 지갑 관리 =====
     with tab1:
@@ -88,9 +182,15 @@ def main():
 
                 wallet = wallet_service.get_wallet(selected_wallet_id)
 
-                # 지갑 메트릭
-                st.markdown("### 📊 지갑 현황")
-                display_wallet_metrics(wallet)
+                # 지갑 현황 카드
+                st.markdown("### 지갑 현황")
+                wallet_type_text = "가상" if wallet.wallet_type.value == "virtual" else "실거래"
+                render_wallet_card(
+                    title=wallet.name,
+                    balance=wallet.balance_krw,
+                    total_value=wallet.total_value_krw,
+                    wallet_type=wallet_type_text
+                )
 
                 st.markdown("---")
 
@@ -98,7 +198,7 @@ def main():
                 col1, col2, col3 = st.columns(3)
 
                 with col1:
-                    st.markdown("#### 💵 입금")
+                    st.markdown("#### 입금")
                     deposit_amount = render_deposit_form(wallet.id)
 
                     if deposit_amount:
@@ -116,7 +216,7 @@ def main():
                             st.error(f"입금 실패: {e}")
 
                 with col2:
-                    st.markdown("#### 💸 출금")
+                    st.markdown("#### 출금")
                     withdraw_amount = render_withdraw_form(wallet.id, wallet.balance_krw)
 
                     if withdraw_amount:
@@ -134,7 +234,7 @@ def main():
                             st.error(f"출금 실패: {e}")
 
                 with col3:
-                    st.markdown("#### 🔄 주문")
+                    st.markdown("#### 주문")
                     order_data = render_order_form(wallet.id)
 
                     if order_data:
@@ -157,7 +257,7 @@ def main():
                 st.markdown("---")
 
                 # 보유 자산
-                st.markdown("### 💎 보유 자산")
+                st.markdown("### 보유 자산")
 
                 try:
                     holdings = wallet_service.get_asset_holdings(wallet.id)
@@ -202,7 +302,7 @@ def main():
 
                         # 포트폴리오 차트
                         st.markdown("---")
-                        st.markdown("### 📊 포트폴리오 구성")
+                        st.markdown("### 포트폴리오 구성")
 
                         portfolio_data = [
                             {
@@ -236,7 +336,7 @@ def main():
                 st.markdown("---")
 
                 # 거래 내역
-                st.markdown("### 📜 거래 내역")
+                st.markdown("### 거래 내역")
 
                 try:
                     trades = trading_service.get_wallet_trades(wallet.id, limit=20)

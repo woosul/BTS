@@ -43,7 +43,7 @@ def render_order_form(wallet_id: int) -> Optional[OrderCreate]:
             order_side = st.selectbox(
                 "주문 구분",
                 options=[OrderSide.BUY.value, OrderSide.SELL.value],
-                format_func=lambda x: "🟢 매수" if x == "buy" else "🔴 매도"
+                format_func=lambda x: "매수" if x == "buy" else "매도"
             )
 
             symbol = st.text_input(
@@ -115,7 +115,7 @@ def render_wallet_creation_form() -> Optional[WalletCreate]:
     Returns:
         Optional[WalletCreate]: 지갑 생성 데이터 (제출 시)
     """
-    st.subheader("💰 지갑 생성")
+    st.subheader("지갑 생성")
 
     with st.form("wallet_creation_form"):
         name = st.text_input(
@@ -161,16 +161,19 @@ def render_wallet_creation_form() -> Optional[WalletCreate]:
     return None
 
 
-def render_strategy_creation_form() -> Optional[StrategyCreate]:
+def render_strategy_creation_form(strategy_type: str = "rsi") -> Optional[StrategyCreate]:
     """
     전략 생성 폼
+
+    Args:
+        strategy_type: 전략 타입 (rsi, macd_entry, stochastic_entry 등)
 
     Returns:
         Optional[StrategyCreate]: 전략 생성 데이터 (제출 시)
     """
-    st.subheader("🎯 전략 생성")
+    st.subheader("전략 생성")
 
-    with st.form("strategy_creation_form"):
+    with st.form(f"strategy_creation_form_{strategy_type}"):
         name = st.text_input(
             "전략 이름",
             value="",
@@ -205,35 +208,86 @@ def render_strategy_creation_form() -> Optional[StrategyCreate]:
 
         st.markdown("#### 전략 파라미터")
 
-        # RSI 전략 파라미터 (기본)
-        col1, col2, col3 = st.columns(3)
+        parameters = {}
 
-        with col1:
-            rsi_period = st.number_input(
-                "RSI 기간",
-                min_value=1,
-                max_value=100,
-                value=14,
-                help="RSI 계산 기간"
-            )
+        # 전략 타입별 파라미터 입력
+        if strategy_type == "rsi":
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                parameters["rsi_period"] = st.number_input("RSI 기간", min_value=1, max_value=100, value=14)
+            with col2:
+                parameters["oversold"] = st.number_input("과매도 기준", min_value=0, max_value=100, value=30)
+            with col3:
+                parameters["overbought"] = st.number_input("과매수 기준", min_value=0, max_value=100, value=70)
 
-        with col2:
-            oversold = st.number_input(
-                "과매도 기준",
-                min_value=0,
-                max_value=100,
-                value=30,
-                help="RSI 과매도 기준선"
-            )
+        elif strategy_type == "macd_entry":
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                parameters["fast_period"] = st.number_input("Fast EMA", min_value=1, max_value=100, value=12)
+            with col2:
+                parameters["slow_period"] = st.number_input("Slow EMA", min_value=1, max_value=100, value=26)
+            with col3:
+                parameters["signal_period"] = st.number_input("Signal", min_value=1, max_value=50, value=9)
+            with col4:
+                parameters["min_confidence"] = st.number_input("최소 확신도", min_value=0.0, max_value=1.0, value=0.65, step=0.05)
 
-        with col3:
-            overbought = st.number_input(
-                "과매수 기준",
-                min_value=0,
-                max_value=100,
-                value=70,
-                help="RSI 과매수 기준선"
-            )
+        elif strategy_type == "stochastic_entry":
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                parameters["k_period"] = st.number_input("%K 기간", min_value=1, max_value=100, value=14)
+            with col2:
+                parameters["d_period"] = st.number_input("%D 기간", min_value=1, max_value=50, value=3)
+            with col3:
+                parameters["smooth"] = st.number_input("스무딩", min_value=1, max_value=10, value=3)
+            with col4:
+                parameters["oversold"] = st.number_input("과매도 기준", min_value=0, max_value=50, value=20)
+
+        elif strategy_type == "multi_indicator_entry":
+            st.markdown("**사용할 지표 선택**")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                parameters["use_rsi"] = st.checkbox("RSI", value=True)
+            with col2:
+                parameters["use_macd"] = st.checkbox("MACD", value=True)
+            with col3:
+                parameters["use_bollinger"] = st.checkbox("Bollinger Bands", value=True)
+            with col4:
+                parameters["use_volume"] = st.checkbox("거래량", value=True)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                parameters["combination_mode"] = st.selectbox(
+                    "조합 모드",
+                    options=["AND", "OR"],
+                    help="AND: 모든 지표 충족, OR: 최소 N개 지표 충족"
+                )
+            with col2:
+                if parameters["combination_mode"] == "OR":
+                    parameters["min_indicators"] = st.number_input("최소 충족 지표 수", min_value=1, max_value=4, value=2)
+
+        elif strategy_type == "hybrid_entry":
+            st.markdown("**전략 가중치 설정**")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                macd_w = st.number_input("MACD 가중치", min_value=0.0, max_value=1.0, value=0.35, step=0.05)
+            with col2:
+                stoch_w = st.number_input("Stochastic 가중치", min_value=0.0, max_value=1.0, value=0.30, step=0.05)
+            with col3:
+                rsi_w = st.number_input("RSI 가중치", min_value=0.0, max_value=1.0, value=0.20, step=0.05)
+            with col4:
+                vol_w = st.number_input("거래량 가중치", min_value=0.0, max_value=1.0, value=0.15, step=0.05)
+
+            total_weight = macd_w + stoch_w + rsi_w + vol_w
+            if abs(total_weight - 1.0) > 0.01:
+                st.warning(f"⚠️ 가중치 합계가 1이 아닙니다: {total_weight:.2f}")
+
+            parameters["strategy_weights"] = {
+                "macd": macd_w,
+                "stochastic": stoch_w,
+                "rsi": rsi_w,
+                "volume": vol_w
+            }
+            parameters["buy_threshold"] = st.number_input("매수 임계값", min_value=0.0, max_value=1.0, value=0.65, step=0.05)
 
         submitted = st.form_submit_button("전략 생성", type="primary")
 
@@ -243,12 +297,6 @@ def render_strategy_creation_form() -> Optional[StrategyCreate]:
                 return None
 
             try:
-                parameters = {
-                    "rsi_period": rsi_period,
-                    "oversold": oversold,
-                    "overbought": overbought
-                }
-
                 strategy_data = StrategyCreate(
                     name=name,
                     description=description or "",
@@ -349,7 +397,7 @@ def render_backtest_form() -> Optional[Dict[str, Any]]:
     Returns:
         Optional[Dict]: 백테스팅 설정 (제출 시)
     """
-    st.subheader("📊 백테스팅 설정")
+    st.subheader("백테스팅 설정")
 
     with st.form("backtest_form"):
         col1, col2 = st.columns(2)
@@ -419,7 +467,7 @@ def render_strategy_update_form(strategy_id: int, current_params: Dict) -> Optio
     Returns:
         Optional[StrategyUpdate]: 전략 수정 데이터 (제출 시)
     """
-    st.subheader("✏️ 전략 수정")
+    st.subheader("전략 수정")
 
     with st.form("strategy_update_form"):
         name = st.text_input(

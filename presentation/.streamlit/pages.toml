@@ -1,0 +1,27 @@
+[[pages]]
+path = "Home.py"
+name = "Home"
+
+[[pages]]
+path = "pages/1_Dashboard.py"
+name = "Dashboard"
+
+[[pages]]
+path = "pages/2_Virtual_Wallet.py"
+name = "Virtual Wallet"
+
+[[pages]]
+path = "pages/3_Screening.py"
+name = "Screening"
+
+[[pages]]
+path = "pages/4_Strategy_Settings.py"
+name = "Strategy Settings"
+
+[[pages]]
+path = "pages/5_Portfolio.py"
+name = "Portfolio"
+
+[[pages]]
+path = "pages/6_Backtest.py"
+name = "Backtest"
