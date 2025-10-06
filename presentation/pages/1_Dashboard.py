@@ -105,6 +105,12 @@ st.markdown("""
         text-align: left !important;
         justify-content: flex-start !important;
     }
+    /* 선택된 메뉴 스타일 */
+    [data-testid="stSidebarNav"] ul li a[aria-current="page"] {
+        background-color: #54A0FD !important;
+        font-weight: 600 !important;
+        border-radius: 4px !important;
+    }
     h1 {
         font-size: 1.8rem !important;
         margin-top: 0.5rem !important;
@@ -127,6 +133,11 @@ st.markdown("""
     .block-container {
         padding-top: 2rem !important;
         padding-bottom: 1rem !important;
+    }
+    /* 사이드바 expander 내부 폰트 크기 */
+    [data-testid="stSidebar"] [data-testid="stExpander"] p,
+    [data-testid="stSidebar"] [data-testid="stExpander"] div {
+        font-size: 0.875rem !important;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -160,6 +171,81 @@ def main():
 
     # 서비스 초기화
     wallet_service, trading_service, strategy_service = get_services()
+
+    # 사이드바: 활성 전략 및 최근 시그널
+    with st.sidebar:
+        st.markdown("---")
+
+        # 활성 전략
+        try:
+            strategies = strategy_service.get_all_strategies()
+            active_strategies = [s for s in strategies if s.status.value == "active"]
+
+            st.subheader("활성 전략")
+            if active_strategies:
+                for strategy in active_strategies:
+                    with st.expander(f"{strategy.name}", expanded=False):
+                        st.write(f"**설명**: {strategy.description}")
+                        st.write(f"**시간프레임**: {strategy.timeframe.value}")
+                        st.write(f"**파라미터**:")
+                        for key, value in strategy.parameters.items():
+                            st.write(f"  - {key}: {value}")
+            else:
+                st.info("활성화된 전략이 없습니다.")
+
+            # 최근 시그널
+            st.subheader("최근 시그널")
+            if active_strategies:
+                try:
+                    strategy = active_strategies[0]
+                    signal = strategy_service.generate_signal(
+                        strategy.id,
+                        "KRW-BTC"
+                    )
+
+                    # 시그널 텍스트
+                    signal_text = {
+                        "buy": "매수",
+                        "sell": "매도",
+                        "hold": "관망"
+                    }
+                    text = signal_text.get(signal.signal.value, signal.signal.value)
+
+                    # 태그 스타일로 표시 (inline, 작은 크기)
+                    tags_html = f"""<div style="display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.5rem;">
+<span style="background-color: #3C3E44; padding: 0.4rem 0.6rem; border-radius: 4px; display: inline-block; font-size: 0.85rem;">
+<span style="color: #9e9e9e;">시그널:</span>
+<span style="color: white; font-weight: bold; margin-left: 0.3rem;">{text}</span>
+</span>
+<span style="background-color: #3C3E44; padding: 0.4rem 0.6rem; border-radius: 4px; display: inline-block; font-size: 0.85rem;">
+<span style="color: #9e9e9e;">확신도:</span>
+<span style="color: white; font-weight: bold; margin-left: 0.3rem;">{signal.confidence * 100:.1f}%</span>
+</span>"""
+
+                    if signal.indicators:
+                        for key, value in signal.indicators.items():
+                            if isinstance(value, float):
+                                val_str = f"{value:.2f}"
+                            else:
+                                val_str = str(value)
+                            tags_html += f"""
+<span style="background-color: #3C3E44; padding: 0.4rem 0.6rem; border-radius: 4px; display: inline-block; font-size: 0.85rem;">
+<span style="color: #9e9e9e;">{key}:</span>
+<span style="color: white; font-weight: bold; margin-left: 0.3rem;">{val_str}</span>
+</span>"""
+
+                    tags_html += "</div>"
+                    st.markdown(tags_html, unsafe_allow_html=True)
+
+                except Exception as e:
+                    logger.error(f"시그널 생성 실패: {e}")
+                    st.error(f"시그널 생성 실패: {e}")
+            else:
+                st.info("활성화된 전략이 없습니다.")
+
+        except Exception as e:
+            logger.error(f"전략 조회 실패: {e}")
+            st.error(f"전략 조회 실패: {e}")
 
     # 지갑 선택
     try:
@@ -235,73 +321,6 @@ def main():
     except Exception as e:
         logger.error(f"거래 통계 조회 실패: {e}")
         st.error(f"거래 통계 조회 실패: {e}")
-
-    st.markdown("---")
-
-    # 전략 현황
-    try:
-        strategies = strategy_service.get_all_strategies()
-        active_strategies = [s for s in strategies if s.status.value == "active"]
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.subheader("활성 전략")
-            if active_strategies:
-                for strategy in active_strategies:
-                    with st.expander(f"{strategy.name}", expanded=False):
-                        st.write(f"**설명**: {strategy.description}")
-                        st.write(f"**시간프레임**: {strategy.timeframe.value}")
-                        st.write(f"**파라미터**:")
-                        for key, value in strategy.parameters.items():
-                            st.write(f"  - {key}: {value}")
-            else:
-                st.info("활성화된 전략이 없습니다.")
-
-        with col2:
-            st.subheader("최근 시그널")
-            if active_strategies:
-                # 첫 번째 활성 전략의 시그널 생성
-                try:
-                    strategy = active_strategies[0]
-                    signal = strategy_service.generate_signal(
-                        strategy.id,
-                        "KRW-BTC"
-                    )
-
-                    # 시그널 표시
-                    signal_text = {
-                        "buy": "매수",
-                        "sell": "매도",
-                        "hold": "관망"
-                    }
-
-                    text = signal_text.get(signal.signal.value, signal.signal.value)
-
-                    st.markdown(f"### {text}")
-                    st.metric(
-                        "확신도",
-                        f"{signal.confidence * 100:.1f}%",
-                        help="시그널 확신도"
-                    )
-
-                    if signal.indicators:
-                        st.write("**지표 데이터**:")
-                        for key, value in signal.indicators.items():
-                            if isinstance(value, float):
-                                st.write(f"  - {key}: {value:.2f}")
-                            else:
-                                st.write(f"  - {key}: {value}")
-
-                except Exception as e:
-                    logger.error(f"시그널 생성 실패: {e}")
-                    st.error(f"시그널 생성 실패: {e}")
-            else:
-                st.info("활성화된 전략이 없습니다.")
-
-    except Exception as e:
-        logger.error(f"전략 조회 실패: {e}")
-        st.error(f"전략 조회 실패: {e}")
 
     st.markdown("---")
 

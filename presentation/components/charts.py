@@ -62,7 +62,7 @@ def render_candlestick_chart(
         shared_xaxes=True,
         vertical_spacing=0.03,
         row_heights=[0.7, 0.3],
-        subplot_titles=(title, "거래량")
+        subplot_titles=(title, "Volume")
     )
 
     # 캔들스틱
@@ -73,21 +73,25 @@ def render_candlestick_chart(
             high=df["high"],
             low=df["low"],
             close=df["close"],
-            name="가격"
+            name="",
+            increasing_line_color="#EF5350",  # 양봉 (상승) - 밝은 빨강
+            increasing_fillcolor="#EF5350",
+            decreasing_line_color="#42A5F5",  # 음봉 (하락) - 밝은 파랑
+            decreasing_fillcolor="#42A5F5"
         ),
         row=1,
         col=1
     )
 
     # 거래량
-    colors = ["red" if df.iloc[i]["close"] < df.iloc[i]["open"] else "green"
+    colors = ["#42A5F5" if df.iloc[i]["close"] < df.iloc[i]["open"] else "#EF5350"
               for i in range(len(df))]
 
     fig.add_trace(
         go.Bar(
             x=df["timestamp"],
             y=df["volume"],
-            name="거래량",
+            name="Volume",
             marker_color=colors
         ),
         row=2,
@@ -101,9 +105,9 @@ def render_candlestick_chart(
         showlegend=False
     )
 
-    fig.update_xaxes(title_text="시간", row=2, col=1)
-    fig.update_yaxes(title_text="가격 (KRW)", row=1, col=1)
-    fig.update_yaxes(title_text="거래량", row=2, col=1)
+    fig.update_xaxes(title_text="Time", row=2, col=1)
+    fig.update_yaxes(title_text="Price (KRW)", row=1, col=1)
+    fig.update_yaxes(title_text="Volume", row=2, col=1)
 
     return fig
 

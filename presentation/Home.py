@@ -75,30 +75,42 @@ st.markdown("""
     /* 로고 영역 스타일 */
     [data-testid="stSidebarNav"] {
         padding-top: 0 !important;
+        overflow: visible !important;
+    }
+
+    /* 사이드바 전체 overflow 허용 */
+    section[data-testid="stSidebar"] {
+        overflow: visible !important;
+    }
+    section[data-testid="stSidebar"] > div {
+        overflow: visible !important;
     }
 
     /* 로고 컨테이너 */
     [data-testid="stSidebarNav"] > div:first-child {
-        padding: 1.5rem 1rem !important;
+        padding: 2.4rem 0.6rem !important;
         display: flex !important;
         justify-content: center !important;
         align-items: center !important;
         width: 100% !important;
+        overflow: visible !important;
     }
 
     /* 로고 링크 영역 */
     [data-testid="stSidebarNav"] a {
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
+        display: block !important;
         width: 100% !important;
+        overflow: visible !important;
     }
 
-    /* 로고 이미지 크기 */
+    /* 로고 이미지 크기 - 1.6배 확대 (transform 사용) */
     [data-testid="stSidebarNav"] img {
-        width: 95% !important;
-        max-width: 400px !important;
+        width: 100% !important;
+        max-width: 100% !important;
         height: auto !important;
+        transform: scale(1.6) !important;
+        transform-origin: center center !important;
+        margin: 0 !important;
     }
 
     /* 네비게이션 메뉴와 로고 사이 간격 */
@@ -174,6 +186,7 @@ st.markdown("""
         font-size: 0.875rem !important;
     }
 
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -240,7 +253,7 @@ def main():
 
     # 사이드바: 지갑 선택
     with st.sidebar:
-        st.header("설정")
+        st.subheader("설정")
 
         # 지갑 목록 조회
         try:
