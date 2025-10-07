@@ -103,7 +103,7 @@ st.markdown("""
         overflow: visible !important;
     }
 
-    /* 로고 이미지 크기 - 1.6배 확대 (transform 사용) */
+    /* 로고 이미지 크기 - 1.6배 확대 (transform 사용) : Streamlit 고유 스타일 영역으로 사이즈 조정 안됨  */
     [data-testid="stSidebarNav"] img {
         width: 100% !important;
         max-width: 100% !important;
@@ -241,7 +241,8 @@ def main():
     init_session_state()
 
     # 헤더
-    st.title("BTS - Bitcoin Auto Trading System")
+    st.title("BTS | Bitcoin Trading System")
+    st.caption("KRW/BTC 시장에서의 종목선정에서부터 매수/매도 시스템 자동매매 시스템을 위한 트레이딩 전략 평가 플랫폼  |  UPBIT  |  BITTHUMB")
     st.markdown("---")
 
     # 서비스 초기화
@@ -250,7 +251,7 @@ def main():
     if not wallet_service:
         st.error("서비스를 초기화할 수 없습니다. 설정을 확인하세요.")
         return
-
+        
     # 사이드바: 지갑 선택
     with st.sidebar:
         st.subheader("설정")
@@ -315,39 +316,54 @@ def main():
 
         # 선택된 제공자의 모델 정보 표시
         if ai_provider == "claude":
-            st.caption(f"모델: {settings.claude_model}")
-            st.caption(f"Fallback: {settings.claude_fallback_model}")
+            st.caption(f"모델 : {settings.claude_model}")
+            st.caption(f"Fallback : {settings.claude_fallback_model}")
             api_key_status = "✓" if settings.claude_api_key else "✗"
-            st.caption(f"API 키: {api_key_status}")
+            st.caption(f"API 키 : {api_key_status}")
         else:
-            st.caption(f"모델: {settings.openai_model}")
-            st.caption(f"Fallback: {settings.openai_fallback_model}")
+            st.caption(f"모델 : {settings.openai_model}")
+            st.caption(f"Fallback : {settings.openai_fallback_model}")
             api_key_status = "✓" if settings.openai_api_key else "✗"
-            st.caption(f"API 키: {api_key_status}")
+            st.caption(f"API 키 : {api_key_status}")
 
-        st.caption(f"캐시: {'ON' if settings.ai_cache_enabled else 'OFF'} ({settings.ai_cache_ttl_minutes}분)")
+        st.caption(f"캐시 : {'ON' if settings.ai_cache_enabled else 'OFF'} ({settings.ai_cache_ttl_minutes}분)")
 
         st.markdown("---")
 
         # 시스템 정보
         st.subheader("시스템 정보")
-        st.caption(f"거래 모드: {settings.trading_mode}")
-        st.caption(f"로그 레벨: {settings.log_level}")
+        st.caption(f"거래모드 : {settings.trading_mode}")
+        st.caption(f"로그레벨 : {settings.log_level}")
 
         # 거래소 연결 상태
         try:
             from infrastructure.exchanges.upbit_client import UpbitClient
             upbit = UpbitClient()
             if upbit.check_connection():
-                st.success("Upbit 연결")
+                st.success("UPBIT Connected")
             else:
-                st.error("Upbit 연결 실패")
+                st.error("UPBIT Connection Failed")
         except:
-            st.warning("Upbit 연결 확인 불가")
+            st.warning("UPBIT Unavailable")
+        
+        # 선택된 지갑 정보 표시
+        if st.session_state.selected_wallet:
+            wallet = wallet_service.get_wallet(st.session_state.selected_wallet)
+
+            # 지갑 카드 표시
+            wallet_type_text = "가상" if wallet.wallet_type.value == "virtual" else "실거래"
+            render_wallet_card(
+                title=wallet.name,
+                balance=wallet.balance_krw,
+                total_value=wallet.total_value_krw,
+                wallet_type=wallet_type_text
+            )
+        else:
+            st.info("사이드바에서 지갑을 선택하거나 생성하세요.")        
 
     # 메인 컨텐츠
     if not st.session_state.selected_wallet:
-        st.info("사이드바에서 지갑을 선택하거나 생성하세요.")
+        # st.info("사이드바에서 지갑을 선택하거나 생성하세요.")
 
         # 빠른 시작 가이드
         st.subheader("빠른 시작 가이드")
@@ -526,7 +542,7 @@ def main():
 
     # 푸터
     st.markdown("---")
-    st.caption("BTS - Bitcoin Auto Trading System v1.0 | Clean Architecture Design")
+    st.caption("BTS - Bitcoin Trading System v1.0  |  Clean Architecture Designed  |  Copyright 2025 Peaknine")
 
 if __name__ == "__main__":
     main()

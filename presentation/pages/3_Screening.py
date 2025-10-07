@@ -627,7 +627,7 @@ def main():
         st.markdown("<h3 style='margin-bottom: 0.8rem;'>주의사항</h3>", unsafe_allow_html=True)
 
         st.markdown("""
-        <div style='background-color: #00CCAC20; border-left: 4px solid #00CCAC; padding: 16px; border-radius: 4px;'>
+        <div style='background-color: #00CCAC70; border-left: 4px solid #00CCAC; padding: 16px; border-radius: 4px;'>
             <div style='font-size: 0.875rem; color: #FAFAFA; line-height: 1.6;'>
                 • 스크리닝 결과는 투자 참고 자료일 뿐, 투자 결정의 근거가 될 수 없습니다<br>
                 • 시장 상황에 따라 점수가 달라질 수 있습니다<br>

@@ -8,7 +8,7 @@
 
 [한국어 문서](README_KR.md) | [Strategy Guide](docs/strategy_guide.md) | [API Reference](docs/api_reference.md)
 
-## 🎯 Overview
+## Overview
 
 BTS is a professional Bitcoin automated trading system designed with Clean Architecture principles, featuring:
 
@@ -18,9 +18,9 @@ BTS is a professional Bitcoin automated trading system designed with Clean Archi
 - **Comprehensive Backtesting**: Historical performance analysis with slippage & Sharpe ratio
 - **Multi-Exchange Support**: Upbit priority (extensible architecture)
 
-## ✨ Key Features
+## Key Features
 
-### 📊 Trading Strategies
+### Trading Strategies
 
 #### 1. Screening Strategies
 Automatically select high-potential coins from KRW/BTC markets:
@@ -65,7 +65,7 @@ Profit-taking & loss-cutting:
 - **Result Caching**: 15-minute TTL for cost reduction
 - **Signal Combination**: Weighted average (Strategy 60% + AI 40%)
 
-### 📈 Backtesting Engine
+### Backtesting Engine
 
 Comprehensive performance analysis:
 - **Realistic Simulation**: Slippage (0.1%) & commission (0.05%)
@@ -73,7 +73,7 @@ Comprehensive performance analysis:
 - **Visual Analysis**: Equity curve, drawdown chart, trade distribution
 - **Strategy Comparison**: Side-by-side comparison of multiple strategies
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -109,7 +109,7 @@ cp .env.example .env
 
 Edit `.env` with your API keys:
 
-```env
+```bash
 # Upbit API (optional for paper trading)
 UPBIT_ACCESS_KEY=your_access_key
 UPBIT_SECRET_KEY=your_secret_key
@@ -145,7 +145,7 @@ python application/services/screening_service.py
 
 Access the web interface at: `http://localhost:8501`
 
-## 📖 Usage Guide
+## Usage Guide
 
 ### 1. Create Virtual Wallet
 
@@ -187,7 +187,7 @@ Access the web interface at: `http://localhost:8501`
 4. Run backtest
 5. Analyze metrics & charts
 
-## 🏗️ Architecture
+## Architecture
 
 ### Clean Architecture Layers
 
@@ -234,7 +234,7 @@ BTS/
 └── utils/                  # Utilities
 ```
 
-## 🔧 Advanced Configuration
+## Advanced Configuration
 
 ### Custom Strategy Development
 
@@ -263,7 +263,7 @@ service = AIEvaluationService(provider="claude")
 service = AIEvaluationService(provider="openai")
 ```
 
-## 📊 Performance Metrics
+## Performance Metrics
 
 The backtesting engine calculates:
 
@@ -274,7 +274,7 @@ The backtesting engine calculates:
 - **Profit/Loss Ratio**: Average win vs average loss
 - **Total Trades**: Number of executed trades
 
-## 🤝 Contributing
+## Contributing
 
 Contributions are welcome! Please follow these steps:
 
@@ -284,11 +284,11 @@ Contributions are welcome! Please follow these steps:
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## 📝 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 **This software is for educational and research purposes only.**
 
@@ -297,17 +297,17 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Always conduct thorough testing before live trading
 - The authors are not responsible for any financial losses
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - [Upbit](https://upbit.com/) - Korean cryptocurrency exchange
 - [Anthropic Claude](https://www.anthropic.com/) - AI evaluation
 - [OpenAI](https://openai.com/) - AI evaluation
 - [Streamlit](https://streamlit.io/) - Web framework
 
-## 📧 Contact
+## Contact
 
 For questions or support, please open an issue on GitHub.
 
 ---
 
-**Built with ❤️ using Clean Architecture principles**
+**Built with using Clean Architecture principles**

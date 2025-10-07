@@ -177,4 +177,7 @@ raw_data/
 cache/
 tmp/
 
+# --- AI Instruction Files ---
+CLAUDE.*
+.claude/
 # End of file
