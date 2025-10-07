@@ -57,15 +57,15 @@ def get_engine() -> Engine:
         echo=settings.log_level == "DEBUG",  # 디버그 모드에서 SQL 쿼리 로깅
     )
 
-    # SQLite WAL 모드 및 Foreign Key 활성화
+    # SQLite 설정: DELETE 모드로 변경 (WAL 문제 해결)
     if db_url.startswith("sqlite"):
         @event.listens_for(engine, "connect")
         def set_sqlite_pragma(dbapi_conn, connection_record):
             """SQLite 연결 시 프라그마 설정"""
             cursor = dbapi_conn.cursor()
-            cursor.execute("PRAGMA journal_mode=WAL")  # WAL 모드
+            cursor.execute("PRAGMA journal_mode=DELETE")  # DELETE 모드 (WAL 대신)
             cursor.execute("PRAGMA foreign_keys=ON")  # Foreign Key 활성화
-            cursor.execute("PRAGMA synchronous=NORMAL")  # 성능 최적화
+            cursor.execute("PRAGMA synchronous=FULL")  # 안정성 우선
             cursor.close()
 
     logger.info(f"데이터베이스 엔진 생성 완료: {db_url}")

@@ -6,6 +6,7 @@ BTS 전략 설정 페이지
 import streamlit as st
 import sys
 from pathlib import Path
+import pandas as pd
 
 # 프로젝트 루트 추가
 project_root = Path(__file__).parent.parent.parent
@@ -120,6 +121,24 @@ st.markdown("""
         padding-top: 2rem !important;
         padding-bottom: 1rem !important;
     }
+
+    /* 셀렉트박스 폰트 크기 및 스타일 */
+    [data-baseweb="select"] > div {
+        font-size: 0.875em !important;
+    }
+    [data-baseweb="select"] input {
+        font-size: 0.875em !important;
+    }
+    [data-baseweb="select"] div[role="button"] {
+        border-radius: 4px !important;
+    }
+
+    /* 사이드바 메뉴 스타일 */
+    [data-testid="stSidebarNav"] ul li a {
+        background-color: var(--primary-color) !important;
+        border-radius: 4px !important;
+        margin-bottom: 4px !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -142,8 +161,8 @@ def main():
     # 서비스 초기화
     strategy_service = get_services()
 
-    # 탭: 전략 목록 / 전략 생성 / 매수 전략 / 전략 테스트
-    tab1, tab2, tab_entry, tab3 = st.tabs(["전략 목록", "전략 생성", "매수 전략", "전략 테스트"])
+    # 탭: 전략 목록 / 전략 생성 / 매수 전략 / 매도 전략 / 전략 테스트
+    tab1, tab2, tab_entry, tab_exit, tab3 = st.tabs(["전략 목록", "전략 생성", "매수 전략", "매도 전략", "전략 테스트"])
 
     # ===== 탭 1: 전략 목록 =====
     with tab1:
@@ -277,55 +296,212 @@ def main():
 
     # ===== 탭 Entry: 매수 전략 =====
     with tab_entry:
-        st.subheader("매수 전략 생성")
+        # 사이드바: 매수 전략 설정
+        with st.sidebar:
+            st.markdown("<h3 style='margin-bottom: 0.8rem;'>매수 전략 설정</h3>", unsafe_allow_html=True)
 
-        # 전략 타입 선택
-        strategy_type = st.selectbox(
-            "매수 전략 타입",
-            options=["macd_entry", "stochastic_entry", "multi_indicator_entry", "hybrid_entry"],
-            format_func=lambda x: {
-                "macd_entry": "MACD Entry (골든 크로스)",
-                "stochastic_entry": "Stochastic Entry (과매도 반등)",
-                "multi_indicator_entry": "Multi-Indicator Entry (복합 지표)",
-                "hybrid_entry": "Hybrid Entry (가중 평균)"
-            }.get(x, x)
-        )
+            # 전략 선택
+            entry_strategy_type = st.selectbox(
+                "전략",
+                options=["macd_entry", "stochastic_entry", "multi_indicator_entry", "hybrid_entry"],
+                format_func=lambda x: {
+                    "macd_entry": "MACD Entry",
+                    "stochastic_entry": "Stochastic Entry",
+                    "multi_indicator_entry": "Multi-Indicator Entry",
+                    "hybrid_entry": "Hybrid Entry"
+                }[x],
+                help="**매수 전략 선택**\n\n매수 시점을 결정할 전략을 선택합니다.\n- MACD: 골든 크로스\n- Stochastic: 과매도 반등\n- Multi-Indicator: 복합 지표\n- Hybrid: 가중 평균",
+                key="entry_strategy_select"
+            )
 
-        # 전략 설명 표시
+            st.markdown("<hr style='margin: 0.8rem 0;'>", unsafe_allow_html=True)
+
+            # 전략 설정 (카드 + 모달 방식)
+            st.markdown("<h3 style='margin-bottom: 0.8rem;'>전략 설정</h3>", unsafe_allow_html=True)
+
+            # Session state 초기화
+            if f"entry_params_{entry_strategy_type}" not in st.session_state:
+                st.session_state[f"entry_params_{entry_strategy_type}"] = None
+
+            # 현재 설정된 파라미터
+            entry_params = st.session_state.get(f"entry_params_{entry_strategy_type}")
+
+            # 전략 이름 매핑
+            entry_names = {
+                "macd_entry": "MACD Entry",
+                "stochastic_entry": "Stochastic Entry",
+                "multi_indicator_entry": "Multi-Indicator Entry",
+                "hybrid_entry": "Hybrid Entry"
+            }
+
+            from presentation.components.strategy_card import render_strategy_card
+            from presentation.components.entry_modal import show_entry_config_modal
+
+            # 전략 카드 렌더링
+            button_clicked = render_strategy_card(
+                strategy_name=entry_names.get(entry_strategy_type, entry_strategy_type),
+                strategy_type=entry_strategy_type,
+                strategy_params=entry_params,
+                card_key=f"entry_{entry_strategy_type}"
+            )
+
+            # 설정 버튼 클릭 시 모달 열기
+            if button_clicked:
+                show_entry_config_modal(
+                    strategy_name=entry_names.get(entry_strategy_type, entry_strategy_type),
+                    strategy_type=entry_strategy_type,
+                    current_params=entry_params
+                )
+
+        # 메인 영역
+        st.subheader("매수 전략")
+
+        # 전략 설명
         strategy_descriptions = {
             "macd_entry": "MACD 선이 시그널 선을 상향 돌파하거나 히스토그램이 양수로 전환될 때 매수",
             "stochastic_entry": "%K와 %D가 골든 크로스하거나 과매도 구간에서 반등할 때 매수",
             "multi_indicator_entry": "RSI, MACD, 볼린저 밴드, 거래량 등 여러 지표를 조합하여 매수 (AND/OR 모드)",
             "hybrid_entry": "여러 전략의 시그널을 가중 평균하여 종합적으로 판단"
         }
-        st.info(strategy_descriptions.get(strategy_type, ""))
 
-        st.markdown("---")
+        st.info(strategy_descriptions.get(entry_strategy_type, ""))
 
-        # 전략 생성 폼
-        strategy_data = render_strategy_creation_form(strategy_type=strategy_type)
+        if entry_params:
+            st.success("전략이 설정되었습니다. 백테스트를 실행하거나 저장할 수 있습니다.")
 
-        if strategy_data:
-            try:
-                # Entry Service 사용
-                from application.services.entry_service import EntryService
-                entry_service = EntryService(st.session_state.db, UpbitClient())
+            # 전략 저장 버튼
+            if st.button("전략 저장", type="primary"):
+                try:
+                    from application.services.entry_service import EntryService
+                    entry_service = EntryService(st.session_state.db, UpbitClient())
 
-                strategy = entry_service.create_entry_strategy(
-                    strategy_type=strategy_type,
-                    name=strategy_data.name,
-                    description=strategy_data.description,
-                    timeframe=strategy_data.timeframe,
-                    parameters=strategy_data.parameters
+                    strategy = entry_service.create_entry_strategy(
+                        strategy_type=entry_strategy_type,
+                        name=f"{entry_names[entry_strategy_type]}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}",
+                        description=strategy_descriptions[entry_strategy_type],
+                        timeframe="1h",
+                        parameters=entry_params
+                    )
+
+                    st.success(f"매수 전략 저장 완료 (ID: {strategy.id})")
+                    st.rerun()
+
+                except Exception as e:
+                    logger.error(f"전략 저장 실패: {e}")
+                    st.error(f"전략 저장 실패: {e}")
+        else:
+            st.warning("왼쪽 사이드바에서 전략을 설정해주세요.")
+
+    # ===== 탭 Exit: 매도 전략 =====
+    with tab_exit:
+        # 사이드바: 매도 전략 설정
+        with st.sidebar:
+            st.markdown("<h3 style='margin-bottom: 0.8rem;'>매도 전략 설정</h3>", unsafe_allow_html=True)
+
+            # 전략 선택
+            exit_strategy_type = st.selectbox(
+                "전략",
+                options=[
+                    "macd_exit",
+                    "stochastic_exit",
+                    "time_based_exit",
+                    "fixed_target_exit",
+                    "trailing_stop_exit",
+                    "hybrid_exit"
+                ],
+                format_func=lambda x: {
+                    "macd_exit": "MACD Exit",
+                    "stochastic_exit": "Stochastic Exit",
+                    "time_based_exit": "Time-based Exit",
+                    "fixed_target_exit": "Fixed Target Exit",
+                    "trailing_stop_exit": "Trailing Stop Exit",
+                    "hybrid_exit": "Hybrid Exit"
+                }[x],
+                help="**매도 전략 선택**\n\n매도 시점을 결정할 전략을 선택합니다.\n- MACD: 데드 크로스\n- Stochastic: 과매수\n- Time-based: 보유 기간\n- Fixed Target: 목표가/손절가\n- Trailing Stop: 트레일링 스탑\n- Hybrid: 가중 평균",
+                key="exit_strategy_select"
+            )
+
+            st.markdown("<hr style='margin: 0.8rem 0;'>", unsafe_allow_html=True)
+
+            # 전략 설정 (카드 + 모달 방식)
+            st.markdown("<h3 style='margin-bottom: 0.8rem;'>전략 설정</h3>", unsafe_allow_html=True)
+
+            # Session state 초기화
+            if f"exit_params_{exit_strategy_type}" not in st.session_state:
+                st.session_state[f"exit_params_{exit_strategy_type}"] = None
+
+            # 현재 설정된 파라미터
+            exit_params = st.session_state.get(f"exit_params_{exit_strategy_type}")
+
+            # 전략 이름 매핑
+            exit_names = {
+                "macd_exit": "MACD Exit",
+                "stochastic_exit": "Stochastic Exit",
+                "time_based_exit": "Time-based Exit",
+                "fixed_target_exit": "Fixed Target Exit",
+                "trailing_stop_exit": "Trailing Stop Exit",
+                "hybrid_exit": "Hybrid Exit"
+            }
+
+            from presentation.components.strategy_card import render_strategy_card
+            from presentation.components.exit_modal import show_exit_config_modal
+
+            # 전략 카드 렌더링
+            button_clicked = render_strategy_card(
+                strategy_name=exit_names.get(exit_strategy_type, exit_strategy_type),
+                strategy_type=exit_strategy_type,
+                strategy_params=exit_params,
+                card_key=f"exit_{exit_strategy_type}"
+            )
+
+            # 설정 버튼 클릭 시 모달 열기
+            if button_clicked:
+                show_exit_config_modal(
+                    strategy_name=exit_names.get(exit_strategy_type, exit_strategy_type),
+                    strategy_type=exit_strategy_type,
+                    current_params=exit_params
                 )
 
-                st.success(f"매수 전략 '{strategy.name}' 생성 완료 (ID: {strategy.id})")
-                logger.info(f"매수 전략 생성: {strategy.name}")
-                st.rerun()
+        # 메인 영역
+        st.subheader("매도 전략")
 
-            except Exception as e:
-                logger.error(f"매수 전략 생성 실패: {e}")
-                st.error(f"매수 전략 생성 실패: {e}")
+        # 전략 설명
+        exit_strategy_descriptions = {
+            "macd_exit": "MACD 선이 시그널 선을 하향 돌파하거나 0선 아래로 하락할 때 매도",
+            "stochastic_exit": "%K가 과매수 구간(80 이상)에서 %D를 하향 돌파할 때 매도",
+            "time_based_exit": "설정된 보유 기간 경과 시 자동 매도. 날짜/시간 제약 기능 지원",
+            "fixed_target_exit": "목표 수익률 달성 또는 손절률 도달 시 매도",
+            "trailing_stop_exit": "최고가 대비 일정 비율 하락 시 매도 (트레일링 스탑)",
+            "hybrid_exit": "여러 매도 전략의 시그널을 가중 평균하여 종합적으로 판단"
+        }
+
+        st.info(exit_strategy_descriptions.get(exit_strategy_type, ""))
+
+        if exit_params:
+            st.success("전략이 설정되었습니다. 백테스트를 실행하거나 저장할 수 있습니다.")
+
+            # 전략 저장 버튼
+            if st.button("전략 저장", type="primary", key="exit_save_btn"):
+                try:
+                    from application.services.exit_service import ExitService
+                    exit_service = ExitService(st.session_state.db, UpbitClient())
+
+                    strategy = exit_service.create_exit_strategy(
+                        strategy_type=exit_strategy_type,
+                        name=f"{exit_names[exit_strategy_type]}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}",
+                        description=exit_strategy_descriptions[exit_strategy_type],
+                        timeframe="1h",
+                        parameters=exit_params
+                    )
+
+                    st.success(f"매도 전략 저장 완료 (ID: {strategy.id})")
+                    st.rerun()
+
+                except Exception as e:
+                    logger.error(f"전략 저장 실패: {e}")
+                    st.error(f"전략 저장 실패: {e}")
+        else:
+            st.warning("왼쪽 사이드바에서 전략을 설정해주세요.")
 
     # ===== 탭 3: 전략 테스트 =====
     with tab3:

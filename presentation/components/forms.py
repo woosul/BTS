@@ -289,6 +289,116 @@ def render_strategy_creation_form(strategy_type: str = "rsi") -> Optional[Strate
             }
             parameters["buy_threshold"] = st.number_input("매수 임계값", min_value=0.0, max_value=1.0, value=0.65, step=0.05)
 
+        # Exit 전략 파라미터
+        elif strategy_type == "macd_exit":
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                parameters["fast_period"] = st.number_input("Fast EMA", min_value=1, max_value=100, value=12)
+            with col2:
+                parameters["slow_period"] = st.number_input("Slow EMA", min_value=1, max_value=100, value=26)
+            with col3:
+                parameters["signal_period"] = st.number_input("Signal", min_value=1, max_value=50, value=9)
+
+            parameters["cross_mode"] = st.selectbox(
+                "크로스 모드",
+                options=["signal", "zero", "both"],
+                help="signal: 시그널선 데드크로스, zero: 0선 하향돌파, both: 둘 다"
+            )
+            parameters["min_confidence"] = st.number_input("최소 확신도", min_value=0.0, max_value=1.0, value=0.70, step=0.05)
+
+        elif strategy_type == "stochastic_exit":
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                parameters["k_period"] = st.number_input("%K 기간", min_value=1, max_value=100, value=14)
+            with col2:
+                parameters["d_period"] = st.number_input("%D 기간", min_value=1, max_value=50, value=3)
+            with col3:
+                parameters["smooth"] = st.number_input("스무딩", min_value=1, max_value=10, value=3)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                parameters["overbought"] = st.number_input("과매수 기준", min_value=50, max_value=100, value=80)
+            with col2:
+                parameters["cross_required"] = st.checkbox("데드크로스 필수", value=False)
+
+        elif strategy_type == "time_based_exit":
+            st.markdown("**기본 설정**")
+            col1, col2 = st.columns(2)
+            with col1:
+                parameters["force_exit"] = st.checkbox("강제 매도 (손실 중에도)", value=False)
+            with col2:
+                parameters["min_profit_pct"] = st.number_input("최소 익절률 (%)", min_value=-10.0, max_value=100.0, value=0.0, step=1.0)
+
+            st.markdown("**날짜/시간 제약 (선택)**")
+            use_datetime = st.checkbox("날짜/시간 제약 사용", value=False)
+            parameters["use_datetime_constraint"] = use_datetime
+
+            if use_datetime:
+                datetime_mode = st.radio(
+                    "모드",
+                    options=["relative", "absolute"],
+                    format_func=lambda x: "상대 시간 (매수 후 N일/시간)" if x == "relative" else "절대 시각 (특정 날짜/시간)",
+                    horizontal=True
+                )
+                parameters["datetime_mode"] = datetime_mode
+
+                if datetime_mode == "relative":
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        parameters["relative_exit_days"] = st.number_input("매수 후 N일", min_value=0, max_value=365, value=0)
+                    with col2:
+                        parameters["relative_exit_hours"] = st.number_input("매수 후 N시간", min_value=0, max_value=8760, value=24)
+                else:  # absolute
+                    exit_datetime = st.datetime_input("목표 매도 시각", value=datetime.now())
+                    parameters["absolute_exit_datetime"] = exit_datetime
+            else:
+                # 기존 모드
+                col1, col2 = st.columns(2)
+                with col1:
+                    parameters["holding_periods"] = st.number_input("보유 기간 (캔들 수)", min_value=1, max_value=1000, value=24)
+                with col2:
+                    parameters["holding_hours"] = st.number_input("보유 시간 (시간, 선택)", min_value=0, max_value=8760, value=0)
+
+        elif strategy_type == "fixed_target_exit":
+            col1, col2 = st.columns(2)
+            with col1:
+                parameters["target_profit_pct"] = st.number_input("목표 익절률 (%)", min_value=0.0, max_value=1000.0, value=10.0, step=1.0)
+            with col2:
+                parameters["stop_loss_pct"] = st.number_input("손절률 (%)", min_value=-100.0, max_value=0.0, value=-5.0, step=1.0)
+
+        elif strategy_type == "trailing_stop_exit":
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                parameters["trailing_pct"] = st.number_input("트레일링 비율 (%)", min_value=0.0, max_value=50.0, value=3.0, step=0.5)
+            with col2:
+                parameters["activation_profit"] = st.number_input("활성화 수익률 (%)", min_value=0.0, max_value=100.0, value=3.0, step=1.0)
+            with col3:
+                parameters["stop_loss_pct"] = st.number_input("손절률 (%)", min_value=-100.0, max_value=0.0, value=-5.0, step=1.0)
+
+        elif strategy_type == "hybrid_exit":
+            st.markdown("**전략 가중치 설정**")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                fixed_w = st.number_input("Fixed Target", min_value=0.0, max_value=1.0, value=0.40, step=0.05)
+            with col2:
+                trail_w = st.number_input("Trailing Stop", min_value=0.0, max_value=1.0, value=0.35, step=0.05)
+            with col3:
+                rsi_w = st.number_input("RSI", min_value=0.0, max_value=1.0, value=0.15, step=0.05)
+            with col4:
+                time_w = st.number_input("Time-based", min_value=0.0, max_value=1.0, value=0.10, step=0.05)
+
+            total_weight = fixed_w + trail_w + rsi_w + time_w
+            if abs(total_weight - 1.0) > 0.01:
+                st.warning(f"⚠️ 가중치 합계가 1이 아닙니다: {total_weight:.2f}")
+
+            parameters["strategy_weights"] = {
+                "fixed_target": fixed_w,
+                "trailing_stop": trail_w,
+                "rsi": rsi_w,
+                "time_based": time_w
+            }
+            parameters["sell_threshold"] = st.number_input("매도 임계값", min_value=0.0, max_value=1.0, value=0.75, step=0.05)
+
         submitted = st.form_submit_button("전략 생성", type="primary")
 
         if submitted:

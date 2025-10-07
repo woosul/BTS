@@ -21,16 +21,23 @@ class MomentumScreening(BaseScreeningStrategy):
         - price_weight: 가격 상승률 가중치 (기본: 0.4)
         - volume_weight: 거래량 증가율 가중치 (기본: 0.3)
         - rsi_weight: RSI 모멘텀 가중치 (기본: 0.3)
-        - lookback_days: 분석 기간 (기본: 7일)
+        - period_1d: 1일 모멘텀 사용 여부 (기본: True)
+        - period_7d: 7일 모멘텀 사용 여부 (기본: True)
+        - period_30d: 30일 모멘텀 사용 여부 (기본: True)
     """
 
     def __init__(self, parameters: Dict):
         super().__init__(parameters)
 
+        # 가중치 설정
         self.price_weight = float(parameters.get("price_weight", 0.4))
         self.volume_weight = float(parameters.get("volume_weight", 0.3))
         self.rsi_weight = float(parameters.get("rsi_weight", 0.3))
-        self.lookback_days = int(parameters.get("lookback_days", 7))
+
+        # 기간 설정
+        self.period_1d = bool(parameters.get("period_1d", True))
+        self.period_7d = bool(parameters.get("period_7d", True))
+        self.period_30d = bool(parameters.get("period_30d", True))
 
     def calculate_score(self, symbol: str, market_data: Dict) -> SymbolScore:
         """
@@ -43,13 +50,34 @@ class MomentumScreening(BaseScreeningStrategy):
         Returns:
             SymbolScore: 종목 점수
         """
-        # 가격 변동률 점수
-        price_change = market_data.get("price_change_24h", 0.0)
-        price_score = self._normalize_score(price_change, -10, 30)  # -10% ~ +30%
+        # 기간별 가격 변동률 수집
+        price_scores = []
+        if self.period_1d:
+            price_change_1d = market_data.get("price_change_24h", 0.0)
+            price_scores.append(self._normalize_score(price_change_1d, -10, 30))
+        if self.period_7d:
+            price_change_7d = market_data.get("price_change_7d", 0.0)
+            price_scores.append(self._normalize_score(price_change_7d, -20, 50))
+        if self.period_30d:
+            price_change_30d = market_data.get("price_change_30d", 0.0)
+            price_scores.append(self._normalize_score(price_change_30d, -30, 100))
 
-        # 거래량 변동률 점수
-        volume_change = market_data.get("volume_change_24h", 0.0)
-        volume_score = self._normalize_score(volume_change, 0, 200)  # 0% ~ +200%
+        # 평균 가격 점수
+        price_score = sum(price_scores) / len(price_scores) if price_scores else 0.0
+
+        # 거래량 변동률 점수 (활성 기간 중 최대값 활용)
+        volume_scores = []
+        if self.period_1d:
+            volume_change_1d = market_data.get("volume_change_24h", 0.0)
+            volume_scores.append(self._normalize_score(volume_change_1d, 0, 200))
+        if self.period_7d:
+            volume_change_7d = market_data.get("volume_change_7d", 0.0)
+            volume_scores.append(self._normalize_score(volume_change_7d, 0, 300))
+        if self.period_30d:
+            volume_change_30d = market_data.get("volume_change_30d", 0.0)
+            volume_scores.append(self._normalize_score(volume_change_30d, 0, 500))
+
+        volume_score = max(volume_scores) if volume_scores else 0.0
 
         # RSI 모멘텀 점수 (50 기준, 높을수록 상승 모멘텀)
         rsi = market_data.get("indicators", {}).get("rsi", 50)
@@ -69,8 +97,10 @@ class MomentumScreening(BaseScreeningStrategy):
                 "price_score": price_score * 100,
                 "volume_score": volume_score * 100,
                 "rsi_score": rsi_score * 100,
-                "price_change_24h": price_change,
-                "volume_change_24h": volume_change,
+                "price_change_1d": market_data.get("price_change_24h", 0.0),
+                "price_change_7d": market_data.get("price_change_7d", 0.0),
+                "price_change_30d": market_data.get("price_change_30d", 0.0),
+                "volume_change_24h": market_data.get("volume_change_24h", 0.0),
                 "rsi": rsi
             },
             timestamp=datetime.now()
