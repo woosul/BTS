@@ -9,6 +9,7 @@ from alembic import context
 from config.settings import settings
 from infrastructure.database.connection import Base
 from infrastructure.database import models  # ORM 모델 임포트
+from domain.entities import pinned_symbol, filter_profile  # 도메인 엔티티 임포트
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

@@ -6,6 +6,7 @@ Upbit API 연동 (pyupbit 기반)
 from typing import Dict, List, Optional
 from decimal import Decimal
 from datetime import datetime
+import time
 import pyupbit
 
 from infrastructure.exchanges.base_exchange import BaseExchange
@@ -164,10 +165,103 @@ class UpbitClient(BaseExchange):
             )
 
         except Exception as e:
-            logger.error(f"현재가 조회 실패: {e}")
+            logger.debug(f"현재가 조회 실패: {symbol} - {e}")
             raise ExchangeAPIError(
                 f"현재가 조회 실패: {str(e)}",
                 {"symbol": symbol, "error": str(e)}
+            )
+    
+    def get_ticker_detail(self, symbol: str) -> Dict:
+        """
+        Ticker 상세 정보 조회 (거래대금, 변동률 등 포함)
+
+        Args:
+            symbol: 거래 심볼 (예: "KRW-BTC")
+
+        Returns:
+            Dict: Ticker 상세 정보
+                - trade_price: 현재가
+                - acc_trade_price_24h: 24시간 누적 거래대금
+                - acc_trade_volume_24h: 24시간 누적 거래량
+                - opening_price: 시가
+                - high_price: 고가
+                - low_price: 저가
+                - signed_change_rate: 변화율
+                등
+        """
+        try:
+            import requests
+            url = "https://api.upbit.com/v1/ticker"
+            params = {"markets": symbol}
+            
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            
+            data = response.json()
+            if not data or len(data) == 0:
+                raise ExchangeAPIError(
+                    f"Ticker 상세 정보 조회 실패: {symbol}",
+                    {"symbol": symbol}
+                )
+            
+            return data[0]
+            
+        except Exception as e:
+            logger.debug(f"Ticker 상세 정보 조회 실패: {symbol} - {e}")
+            raise ExchangeAPIError(
+                f"Ticker 상세 정보 조회 실패: {str(e)}",
+                {"symbol": symbol, "error": str(e)}
+            )
+    
+    def get_tickers_batch(self, symbols: List[str]) -> Dict[str, Dict]:
+        """
+        여러 종목의 Ticker 상세 정보를 배치로 조회 (Rate Limit 회피)
+
+        Args:
+            symbols: 거래 심볼 리스트 (최대 100개)
+
+        Returns:
+            Dict[str, Dict]: 심볼을 키로 하는 Ticker 정보 딕셔너리
+        """
+        try:
+            import requests
+            import time
+            
+            # Upbit API는 한 번에 최대 100개 종목 조회 가능
+            MAX_BATCH_SIZE = 100
+            result = {}
+            
+            # 심볼을 100개씩 나누어 조회
+            for i in range(0, len(symbols), MAX_BATCH_SIZE):
+                batch = symbols[i:i + MAX_BATCH_SIZE]
+                markets = ",".join(batch)
+                
+                url = "https://api.upbit.com/v1/ticker"
+                params = {"markets": markets}
+                
+                response = requests.get(url, params=params)
+                response.raise_for_status()
+                
+                data = response.json()
+                
+                # 결과를 딕셔너리로 변환
+                for ticker in data:
+                    symbol = ticker.get('market')
+                    if symbol:
+                        result[symbol] = ticker
+                
+                # Rate Limit 방지를 위한 대기 (초당 10회 제한)
+                if i + MAX_BATCH_SIZE < len(symbols):
+                    time.sleep(0.1)
+            
+            logger.info(f"배치 조회 완료: {len(result)}개 종목")
+            return result
+            
+        except Exception as e:
+            logger.error(f"배치 Ticker 조회 실패: {e}")
+            raise ExchangeAPIError(
+                f"배치 Ticker 조회 실패: {str(e)}",
+                {"symbols_count": len(symbols), "error": str(e)}
             )
 
     def get_orderbook(self, symbol: str) -> Dict:
@@ -181,9 +275,39 @@ class UpbitClient(BaseExchange):
             Dict: 호가 정보
         """
         try:
+            # Rate Limit 방지를 위한 딜레이
+            time.sleep(0.1)  # 100ms 대기
+            
             orderbook = pyupbit.get_orderbook(symbol)
 
-            if not orderbook:
+            # pyupbit.get_orderbook()는 단일 심볼 조회 시 딕셔너리를 직접 반환
+            # {'market': 'KRW-BTC', 'timestamp': ..., 'orderbook_units': [...]}
+            if orderbook is None:
+                logger.warning(f"호가 조회 결과가 None: {symbol}")
+                raise ExchangeAPIError(
+                    f"호가 조회 실패: {symbol}",
+                    {"symbol": symbol}
+                )
+            
+            # 타입 체크: 딕셔너리인지 확인
+            if not isinstance(orderbook, dict):
+                logger.warning(f"호가 조회 결과가 dict가 아님: {symbol}, type={type(orderbook)}, value={orderbook}")
+                raise ExchangeAPIError(
+                    f"호가 조회 실패: {symbol}",
+                    {"symbol": symbol}
+                )
+            
+            # orderbook_units 키 존재 확인
+            if "orderbook_units" not in orderbook:
+                logger.warning(f"orderbook_units 키가 없음: {symbol}, keys={orderbook.keys()}")
+                raise ExchangeAPIError(
+                    f"호가 조회 실패: {symbol}",
+                    {"symbol": symbol}
+                )
+            
+            # orderbook_units가 비어있는지 확인
+            if not orderbook["orderbook_units"] or len(orderbook["orderbook_units"]) == 0:
+                logger.warning(f"orderbook_units가 비어있음: {symbol}")
                 raise ExchangeAPIError(
                     f"호가 조회 실패: {symbol}",
                     {"symbol": symbol}
@@ -191,13 +315,14 @@ class UpbitClient(BaseExchange):
 
             return {
                 "symbol": symbol,
-                "bids": orderbook[0]["orderbook_units"],  # 매수 호가
-                "asks": orderbook[0]["orderbook_units"],  # 매도 호가
+                "orderbook_units": orderbook["orderbook_units"],
                 "timestamp": datetime.now()
             }
 
+        except ExchangeAPIError:
+            raise
         except Exception as e:
-            logger.error(f"호가 조회 실패: {e}")
+            logger.error(f"호가 조회 중 예외 발생: {symbol}, {e}")
             raise ExchangeAPIError(
                 f"호가 조회 실패: {str(e)}",
                 {"symbol": symbol, "error": str(e)}
@@ -247,7 +372,7 @@ class UpbitClient(BaseExchange):
             return ohlcv_list
 
         except Exception as e:
-            logger.error(f"OHLCV 조회 실패: {e}")
+            logger.debug(f"OHLCV 조회 실패: {symbol} - {e}")
             raise ExchangeAPIError(
                 f"OHLCV 조회 실패: {str(e)}",
                 {"symbol": symbol, "error": str(e)}

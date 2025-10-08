@@ -409,6 +409,37 @@ class TransactionORM(Base):
         return f"<Transaction(id={self.id}, type={self.transaction_type}, amount={self.amount})>"
 
 
+# ===== 필터 프로파일 모델 =====
+class FilterProfileORM(Base):
+    """필터 프로파일 테이블"""
+    __tablename__ = "filter_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    market: Mapped[str] = mapped_column(String(10), nullable=False)  # KRW, BTC
+    
+    # 필터 조건 (JSON 형태로 저장)
+    conditions_json: Mapped[str] = mapped_column(Text, nullable=False)
+    
+    # 메타데이터
+    is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=func.now(),
+        onupdate=func.now()
+    )
+
+    def __repr__(self) -> str:
+        return f"<FilterProfile(id={self.id}, name={self.name}, market={self.market})>"
+
+
 if __name__ == "__main__":
     # ORM 모델 테스트
     from infrastructure.database.connection import engine, init_db

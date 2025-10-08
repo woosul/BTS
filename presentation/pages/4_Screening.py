@@ -37,68 +37,6 @@ st.logo(
     icon_image=logo_path
 )
 
-# 로고 크기 조정 및 메뉴 스타일
-st.markdown("""
-<style>
-    /* Noto Sans KR 폰트 로드 */
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap');
-    /* Bootstrap Icons 로드 */
-    @import url('https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css');
-    /* Material Icons 로드 */
-    @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
-
-    /* 전체 폰트 적용 (아이콘 제외) */
-    html, body, [class*="css"] {
-        font-family: 'Noto Sans KR', sans-serif !important;
-    }
-
-    /* Streamlit 내부 요소 폰트 적용 */
-    p, h1, h2, h3, h4, h5, h6, label, input, textarea, select, button,
-    [data-testid] div, [data-testid] span, [data-testid] p,
-    .stMarkdown, .stText, .stCaption {
-        font-family: 'Noto Sans KR', sans-serif !important;
-    }
-
-    /* Material Icons 요소는 원래 폰트 유지 */
-    .material-symbols-outlined,
-    [class*="material-icons"],
-    span[data-testid*="stIcon"],
-    button span,
-    [role="button"] span {
-        font-family: 'Material Symbols Outlined', 'Material Icons' !important;
-    }
-
-    [data-testid="stSidebarNav"] {
-        padding-top: 0 !important;
-    }
-    [data-testid="stSidebarNav"] > div:first-child {
-        padding: 1.5rem 1rem !important;
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-        width: 100% !important;
-    }
-    [data-testid="stSidebarNav"] a {
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-        width: 100% !important;
-    }
-    [data-testid="stSidebarNav"] img {
-        width: 90% !important;
-        max-width: 280px !important;
-        height: auto !important;
-    }
-    [data-testid="stSidebarNav"] ul {
-        margin-top: 1rem !important;
-    }
-    [data-testid="stSidebarNav"] ul li a {
-        text-align: left !important;
-        justify-content: flex-start !important;
-    }
-</style>
-""", unsafe_allow_html=True)
-
 def get_services():
     """서비스 인스턴스 가져오기 - 매번 새 세션 생성"""
     from infrastructure.database.connection import SessionLocal
@@ -113,71 +51,61 @@ def get_services():
     return screening_service, pinned_repo, db
 
 def main():
-    # 전체 페이지 스타일 조정
-    st.markdown("""
-    <style>
-    /* 타이틀 크기 조정 */
-    h1 {
-        font-size: 1.8rem !important;
-        margin-top: 0.5rem !important;
-        margin-bottom: 0.5rem !important;
-    }
-    h2 {
-        font-size: 1.3rem !important;
-        margin-top: 0.8rem !important;
-        margin-bottom: 0.5rem !important;
-    }
-    h3 {
-        font-size: 1.1rem !important;
-        margin-top: 0.6rem !important;
-        margin-bottom: 0.4rem !important;
-    }
-    /* 구분선 여백 조정 */
-    hr {
-        margin-top: 0.8rem !important;
-        margin-bottom: 0.8rem !important;
-    }
-    /* 블록 요소 여백 조정 */
-    .block-container {
-        padding-top: 2rem !important;
-        padding-bottom: 1rem !important;
-    }
-
-    /* 셀렉트박스 폰트 크기 및 스타일 */
-    [data-baseweb="select"] > div {
-        font-size: 0.875em !important;
-    }
-    [data-baseweb="select"] input {
-        font-size: 0.875em !important;
-    }
-    [data-baseweb="select"] div[role="button"] {
-        border-radius: 4px !important;
-    }
-
-    /* 멀티셀렉트 태그 폰트 크기 및 스타일 */
-    [data-baseweb="tag"] {
-        font-size: 0.875rem !important;
-        font-family: "Noto Sans KR", sans-serif !important;
-    }
-    [data-baseweb="tag"] span {
-        font-size: 0.875rem !important;
-        font-family: "Noto Sans KR", sans-serif !important;
-    }
-
-    /* 사이드바 메뉴 스타일 */
-    [data-testid="stSidebarNav"] ul li a {
-        background-color: var(--primary-color) !important;
-        border-radius: 4px !important;
-        margin-bottom: 4px !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    # 전역 스타일 적용
+    from presentation.styles.global_styles import apply_global_styles
+    apply_global_styles()
 
     # 서비스 초기화
     screening_service, pinned_repo, db = get_services()
 
     # 사이드바: 스크리닝 설정
     with st.sidebar:
+        # 종목 필터 섹션
+        st.markdown("<h3 style='margin-bottom: 0.8rem;'>종목 필터</h3>", unsafe_allow_html=True)
+        
+        # 필터링 서비스 초기화
+        from application.services.filtering_service import FilteringService
+        filtering_service = FilteringService(db, screening_service.exchange)
+        
+        # 필터 프로파일 선택
+        use_filter = st.checkbox("사전 필터링 사용", value=False, help="스크리닝 전 종목을 필터링합니다")
+        
+        selected_filter_profile = None
+        if use_filter:
+            filter_profiles = filtering_service.get_active_profiles()
+            
+            if filter_profiles:
+                # 시장 선택을 먼저 해야 하므로, 임시로 KRW 사용
+                temp_market = st.session_state.get('screening_market', 'KRW')
+                market_profiles = [p for p in filter_profiles if p.market == temp_market]
+                
+                if market_profiles:
+                    profile_names = [p.name for p in market_profiles]
+                    selected_name = st.selectbox(
+                        "필터 프로파일",
+                        options=profile_names,
+                        help="적용할 필터 프로파일을 선택하세요"
+                    )
+                    selected_filter_profile = next(p for p in market_profiles if p.name == selected_name)
+                    
+                    # 필터 정보 표시
+                    with st.expander("필터 조건 보기"):
+                        cond = selected_filter_profile.conditions
+                        if cond.min_trading_value:
+                            st.write(f"📊 거래대금 ≥ {cond.min_trading_value/1e9:.1f}B")
+                        if cond.min_price or cond.max_price:
+                            st.write(f"💰 가격범위: {cond.min_price or 0}~{cond.max_price or '∞'}")
+                        if cond.min_volatility or cond.max_volatility:
+                            st.write(f"📈 변동성: {cond.min_volatility or 0}~{cond.max_volatility or '∞'}%")
+                else:
+                    st.info(f"{temp_market} 시장용 활성 프로파일이 없습니다.")
+                    st.markdown("[필터링 페이지에서 생성하기](/4_Filtering)")
+            else:
+                st.info("활성화된 필터 프로파일이 없습니다.")
+                st.markdown("[필터링 페이지로 이동](/4_Filtering)")
+        
+        st.markdown("---")
+        
         st.markdown("<h3 style='margin-bottom: 0.8rem;'>스크리닝 설정</h3>", unsafe_allow_html=True)
 
         # 시장 및 전략 선택 (한 줄에 배치)
@@ -444,9 +372,7 @@ def main():
                     "technical_ma_long": 60
                 }
 
-    # 메인 영역 - 항상 결과 페이지 표시
-
-    # 스크리닝 실행 시 결과 업데이트
+    # 스크리닝 실행 시 결과 업데이트 (제목 렌더링 전 처리)
     if run_screening:
         # 디폴트 값으로 실행한 경우, 사이드바 전략 설정도 업데이트 (rerun 없이)
         strategy_key = f"{strategy_type}_strategy_config"
@@ -456,12 +382,31 @@ def main():
 
         with st.spinner("스크리닝 실행 중..."):
             try:
-                # 스크리닝 실행
+                # 필터 적용 (선택된 경우)
+                target_symbols = None
+                filter_stats = []
+                
+                if use_filter and selected_filter_profile:
+                    # 시장의 모든 종목 가져오기
+                    all_market_symbols = screening_service.exchange.get_market_symbols(market)
+                    
+                    # 필터 적용
+                    filtered_symbols, filter_stats = filtering_service.apply_filters(
+                        all_market_symbols,
+                        selected_filter_profile,
+                        return_stats=True
+                    )
+                    
+                    target_symbols = filtered_symbols
+                    logger.info(f"필터 적용: {len(all_market_symbols)} → {len(filtered_symbols)}개 종목")
+                
+                # 스크리닝 실행 (필터링된 종목 또는 전체 종목 대상)
                 results = screening_service.screen_symbols(
                     market=market,
                     strategy_type=strategy_type,
                     strategy_params=strategy_params,
-                    top_n=top_n
+                    top_n=top_n,
+                    symbols=target_symbols  # 필터링된 종목만 전달
                 )
 
                 # 결과 저장
@@ -470,6 +415,7 @@ def main():
                 st.session_state.screening_strategy = strategy_type
                 st.session_state.screening_params = strategy_params
                 st.session_state.screening_time = datetime.now()
+                st.session_state.screening_filter_stats = filter_stats  # 필터 통계 저장
                 # st.success(f"스크리닝 완료: {len(results)}개 종목 선정")
 
             except Exception as e:
@@ -478,47 +424,13 @@ def main():
                 import traceback
                 st.text(traceback.format_exc())
 
-    # 결과 준비: 스크리닝 결과가 있으면 사용, 없으면 빈 리스트
+    # 페이지 타이틀 - 다른 페이지와 동일한 스타일 (최상단에 배치)
+    st.title("종목선정")
+    
+    st.markdown("---")
+    
+    # 메타카드 표시 (fixed 위치, 레이아웃 영향 없음)
     results = st.session_state.get('screening_results', [])
-
-    # 페이지 상단 타이틀과 메타 정보
-    st.markdown("""
-    <style>
-    .page-header {
-        display: flex;
-        align-items: center;
-        margin-bottom: 1rem;
-    }
-    .page-title {
-        font-size: 2rem;
-        font-weight: 600;
-        margin: 0;
-        margin-right: 1rem;
-    }
-    .meta-cards {
-        display: flex;
-        gap: 8px;
-    }
-    .meta-card-small {
-        background-color: #1E1E1E;
-        border-radius: 4px;
-        padding: 8px 16px;
-        border: 1px solid #3d3d4a;
-        font-size: 0.875rem;
-        white-space: nowrap;
-    }
-    .meta-label {
-        color: #9ca3af;
-        margin-right: 4px;
-    }
-    .meta-value {
-        color: #FAFAFA;
-        font-weight: 600;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # 타이틀과 메타카드를 한 줄에
     if results and 'screening_market' in st.session_state:
         strategy_name = {
             "momentum": "모멘텀",
@@ -528,26 +440,66 @@ def main():
         }.get(st.session_state.screening_strategy, "Unknown")
 
         st.markdown(f"""
-        <div class="page-header">
-            <h1 class="page-title">종목선정</h1>
-            <div class="meta-cards" style="margin-left: 80px;">
-                <div class="meta-card-small">
-                    <span class="meta-label">시장</span>
-                    <span class="meta-value">{st.session_state.screening_market}</span>
-                </div>
-                <div class="meta-card-small">
-                    <span class="meta-label">전략</span>
-                    <span class="meta-value">{strategy_name}</span>
-                </div>
-                <div class="meta-card-small">
-                    <span class="meta-label">실행</span>
-                    <span class="meta-value">{st.session_state.screening_time.strftime('%H:%M:%S')}</span>
-                </div>
+        <style>
+        .meta-cards {{
+            position: fixed;
+            top: 4.5rem;
+            right: 5rem;
+            display: flex;
+            gap: 8px;
+            z-index: 1000;
+        }}
+        .meta-card-small {{
+            background-color: #1E1E1E;
+            border-radius: 4px;
+            padding: 8px 16px;
+            border: 1px solid #3d3d4a;
+            font-size: 0.875rem;
+            white-space: nowrap;
+        }}
+        .meta-label {{
+            color: #9ca3af;
+            margin-right: 4px;
+        }}
+        .meta-value {{
+            color: #FAFAFA;
+            font-weight: 600;
+        }}
+        </style>
+        <div class="meta-cards">
+            <div class="meta-card-small">
+                <span class="meta-label">시장</span>
+                <span class="meta-value">{st.session_state.screening_market}</span>
+            </div>
+            <div class="meta-card-small">
+                <span class="meta-label">전략</span>
+                <span class="meta-value">{strategy_name}</span>
+            </div>
+            <div class="meta-card-small">
+                <span class="meta-label">실행</span>
+                <span class="meta-value">{st.session_state.screening_time.strftime('%H:%M:%S')}</span>
             </div>
         </div>
         """, unsafe_allow_html=True)
-    else:
-        st.markdown('<h1 class="page-title">종목선정</h1>', unsafe_allow_html=True)
+    
+    # 필터 통계 표시 (필터가 적용된 경우)
+    filter_stats = st.session_state.get('screening_filter_stats', [])
+    if filter_stats:
+        with st.expander("🔍 필터링 통계", expanded=False):
+            stats_data = []
+            for stat in filter_stats:
+                stats_data.append({
+                    "단계": stat.stage_name,
+                    "이전": stat.symbols_before,
+                    "이후": stat.symbols_after,
+                    "제외": stat.filtered_count,
+                    "비율 (%)": f"{stat.filtered_percentage:.1f}"
+                })
+            
+            if stats_data:
+                st.dataframe(stats_data, use_container_width=True, hide_index=True)
+    
+    st.markdown("<div style='margin: 0.8rem 0;'></div>", unsafe_allow_html=True)
 
     # if not results and len(st.session_state.get('pinned_symbols', set())) == 0:
     #    st.info("스크리닝을 실행하거나 지정 종목을 추가하여 매수 분석을 시작하세요.")
@@ -563,7 +515,7 @@ def main():
     with col_title:
         st.markdown(f"<h3 style='margin: 0; padding-top: 0.3rem;'>{title_text}</h3>", unsafe_allow_html=True)
     with col_btn1:
-        save_pinned_btn = st.button("지정종목저장", use_container_width=True, type="secondary")
+        save_pinned_btn = st.button("지정종목저장", use_container_width=True, type="secondary", key="save_pinned_btn_top")
     with col_btn2:
         single_analysis_btn = st.button("단일매수분석", use_container_width=True, type="secondary")
     with col_btn3:
@@ -583,14 +535,78 @@ def main():
                 st.success("연속 매수 분석이 시작되었습니다.")
                 st.rerun()
 
-    st.markdown("<div style='margin: 0.8rem 0;'></div>", unsafe_allow_html=True)
+    # 지정종목저장 버튼 처리 - 버튼 바로 아래에 배치
+    if save_pinned_btn:
+        # pending 상태 먼저 확인
+        if 'checkbox_pending_pinned' in st.session_state and 'pinned_symbols' in st.session_state:
+            try:
+                logger.info(f"[저장 버튼] pending: {st.session_state.checkbox_pending_pinned}")
+                logger.info(f"[저장 버튼] pinned: {st.session_state.pinned_symbols}")
+                
+                added = st.session_state.checkbox_pending_pinned - st.session_state.pinned_symbols
+                removed = st.session_state.pinned_symbols - st.session_state.checkbox_pending_pinned
 
-    # 지정 종목 DB에서 로드 (초기화 시에만)
+                logger.info(f"[저장 버튼] 추가: {added}")
+                logger.info(f"[저장 버튼] 제거: {removed}")
+
+                if not added and not removed:
+                    st.info("변경된 지정 종목이 없습니다.")
+                else:
+                    for symbol in added:
+                        result = pinned_repo.add(str(symbol), market)
+                        logger.info(f"[저장 버튼] 추가 완료: {symbol} -> {result}")
+
+                    for symbol in removed:
+                        result = pinned_repo.remove(str(symbol))
+                        logger.info(f"[저장 버튼] 제거 완료: {symbol} -> {result}")
+
+                    db_check = pinned_repo.get_all_active(market=market)
+                    db_symbols = set([p.symbol for p in db_check])
+                    logger.info(f"[저장 버튼] DB 확인 결과: {db_symbols}")
+
+                    # 상태 업데이트 - DB에서 확인한 최신 상태로 동기화
+                    st.session_state.pinned_symbols = db_symbols
+                    st.session_state.checkbox_pending_pinned = db_symbols.copy()
+                    
+                    # loaded 플래그를 현재 market으로 설정 (이미 로드됨을 표시)
+                    st.session_state.pinned_symbols_loaded = market
+                    
+                    # multiselect 버전 증가 (강제 업데이트를 위해)
+                    if 'pinned_multiselect_version' not in st.session_state:
+                        st.session_state.pinned_multiselect_version = 0
+                    st.session_state.pinned_multiselect_version += 1
+                    logger.info(f"[저장 버튼] multiselect 버전 증가: {st.session_state.pinned_multiselect_version}")
+                    
+                    # 스크리닝 결과는 그대로 유지됨 (screening_results, data 등)
+
+                    message_parts = []
+                    if added:
+                        message_parts.append(f"추가: {', '.join(sorted([str(s) for s in added]))}")
+                    if removed:
+                        message_parts.append(f"제거: {', '.join(sorted([str(s) for s in removed]))}")
+                    
+                    st.success(f"지정 종목 저장 완료! ({len(db_symbols)}개)\n" + " | ".join(message_parts))
+                    logger.info("[저장 버튼] 완료, rerun")
+                    st.rerun()
+
+            except Exception as e:
+                import traceback
+                error_msg = traceback.format_exc()
+                logger.error(f"[저장 버튼] 오류: {e}\n{error_msg}")
+                st.error(f"저장 중 오류: {e}")
+                st.text(error_msg)
+        else:
+            st.warning("지정 종목 상태가 초기화되지 않았습니다.")
+
+    # st.markdown("<div style='margin: 0.8rem 0;'></div>", unsafe_allow_html=True)
+
+    # 지정 종목 DB에서 로드 (시장이 변경되거나 초기화 시)
     if 'pinned_symbols' not in st.session_state or st.session_state.get('pinned_symbols_loaded') != market:
         db_pinned = pinned_repo.get_all_active(market=market)
         st.session_state.pinned_symbols = set([p.symbol for p in db_pinned])
         st.session_state.pinned_symbols_loaded = market
         st.session_state.checkbox_pending_pinned = st.session_state.pinned_symbols.copy()
+        logger.info(f"지정 종목 로드 완료 ({market}): {st.session_state.pinned_symbols}")
 
     # 현재 스크리닝 결과의 고유 키 생성
     screening_key = f"{market}_{strategy_type}_{st.session_state.get('screening_time', '')}"
@@ -602,9 +618,10 @@ def main():
     # 스크리닝 결과를 dict로 변환 (빠른 조회를 위해)
     results_dict = {r.symbol: r for r in results}
 
-    # 체크박스 임시 상태 초기화
+    # 체크박스 임시 상태 초기화 (페이지 로드 시에만)
     if 'checkbox_pending_pinned' not in st.session_state:
         st.session_state.checkbox_pending_pinned = st.session_state.pinned_symbols.copy()
+        logger.info(f"pending 상태 초기화: {st.session_state.checkbox_pending_pinned}")
 
     # 1. 먼저 체크박스 선택된 종목을 상단에 표시 (DB 저장 여부와 무관)
     # 점수 기준으로 정렬하기 위해 먼저 리스트 생성
@@ -626,8 +643,8 @@ def main():
             row = {
                 "종목": result.symbol,
                 "점수": result.score,
-                # DB 저장된 종목만 "✓" 표시
-                "순위": "✓" if symbol in st.session_state.pinned_symbols else ""
+                # DB 저장된 종목만 "★" 표시
+                "순위": "★" if symbol in st.session_state.pinned_symbols else ""
             }
             # 세부 점수 추가
             for key, value in result.details.items():
@@ -640,7 +657,7 @@ def main():
             row = {
                 "종목": symbol,
                 "점수": 0.0,
-                "순위": "✓" if symbol in st.session_state.pinned_symbols else ""
+                "순위": "★" if symbol in st.session_state.pinned_symbols else ""
             }
         pinned_data.append(row)
 
@@ -653,9 +670,9 @@ def main():
     # 스크리닝 결과부터 처리
     for result in results:
         if result.symbol not in st.session_state.checkbox_pending_pinned:
-            # DB 저장된 종목은 "✓", 아니면 순위 번호
+            # DB 저장된 종목은 "★", 아니면 순위 번호
             if result.symbol in st.session_state.pinned_symbols:
-                rank_display = "✓"
+                rank_display = "★"
             else:
                 rank_display = unpinned_rank
                 unpinned_rank += 1
@@ -681,8 +698,8 @@ def main():
             row = {
                 "종목": symbol,
                 "점수": 0.0,
-                # DB 저장된 종목은 체크박스 해제되어도 "✓" 유지
-                "순위": "✓"
+                # DB 저장된 종목은 체크박스 해제되어도 "★" 유지
+                "순위": "★"
             }
             unpinned_data.append(row)
 
@@ -755,7 +772,8 @@ def main():
         elif col == "순위":
             column_config[col] = st.column_config.NumberColumn(
                 col,
-                width=60
+                width=60,
+                help="★: 지정 종목"
             )
         elif col == "종목":
             column_config[col] = st.column_config.TextColumn(
@@ -814,8 +832,12 @@ def main():
     # 지정 종목 관리 - multiselect 컴포넌트
     st.markdown("<div style='margin: 0.5rem 0;'></div>", unsafe_allow_html=True)
 
-    # 현재 지정된 종목과 시장의 전체 종목 리스트
-    current_pinned = list(st.session_state.pinned_symbols)
+    # multiselect 업데이트 버전 관리 (저장 후 강제 업데이트를 위해)
+    if 'pinned_multiselect_version' not in st.session_state:
+        st.session_state.pinned_multiselect_version = 0
+
+    # 현재 pending 상태의 종목 사용 (사용자가 변경한 상태를 유지)
+    current_pinned = list(st.session_state.checkbox_pending_pinned)
 
     # 시장의 전체 종목 가져오기
     try:
@@ -824,97 +846,55 @@ def main():
         market_symbols = temp_exchange.get_market_symbols(market)
         # 스크리닝 결과와 지정 종목 포함
         all_symbols = list(set(market_symbols + [row["종목"] for row in data] + current_pinned)) if data else list(set(market_symbols + current_pinned))
-    except:
+    except Exception:
         # 에러시 기존 로직 사용
         all_symbols = list(set([row["종목"] for row in data] + current_pinned)) if data else current_pinned
 
     all_symbols.sort()
 
+    # key에 버전 번호를 포함시켜 저장 후 강제 업데이트
+    multiselect_key = f"pinned_symbols_multiselect_v{st.session_state.pinned_multiselect_version}"
+    
     new_pinned_list = st.multiselect(
         "지정 종목 관리 (추가/제거)",
         options=all_symbols,
-        default=current_pinned,
-        key="pinned_symbols_multiselect",
-        help="지정 종목을 선택/해제하세요. 지정 종목은 스크리닝 결과와 무관하게 유지됩니다."
+        default=current_pinned,  # pending 상태를 default로 사용
+        key=multiselect_key,
+        help="지정 종목을 선택/해제하세요. [지정종목저장] 버튼을 눌러야 DB에 저장됩니다."
     )
 
-    # multiselect 변경 감지 및 DB 동기화 (multiselect는 즉시 DB 저장)
+    # multiselect 변경 감지 - pending 상태만 업데이트 (DB 저장은 버튼 클릭 시)
     new_pinned_symbols_from_multi = set(new_pinned_list)
-    if new_pinned_symbols_from_multi != st.session_state.pinned_symbols:
-        # 추가된 종목
-        added = new_pinned_symbols_from_multi - st.session_state.pinned_symbols
-        for symbol in added:
-            pinned_repo.add(symbol, market)
-
-        # 제거된 종목
-        removed = st.session_state.pinned_symbols - new_pinned_symbols_from_multi
-        for symbol in removed:
-            pinned_repo.remove(symbol)
-
-        # DB 저장 상태와 pending 상태 모두 업데이트
-        st.session_state.pinned_symbols = new_pinned_symbols_from_multi
-        st.session_state.checkbox_pending_pinned = new_pinned_symbols_from_multi.copy()
+    if new_pinned_symbols_from_multi != st.session_state.checkbox_pending_pinned:
+        # pending 상태만 업데이트, DB 저장은 하지 않음
+        st.session_state.checkbox_pending_pinned = new_pinned_symbols_from_multi
+        # 테이블 체크박스 동기화를 위해 rerun
         st.rerun()
 
-    # 지정종목저장 버튼 처리 - 새 세션으로 DB에 저장
-    if save_pinned_btn:
-        try:
-            # 디버그 정보
-            debug_info = []
-            debug_info.append(f"현재 DB 저장 상태: {sorted(st.session_state.pinned_symbols)}")
-            debug_info.append(f"Pending 상태: {sorted(st.session_state.checkbox_pending_pinned)}")
+    # 변경 사항 시각적 표시 (DB 저장 전)
+    if st.session_state.checkbox_pending_pinned != st.session_state.pinned_symbols:
+        added_pending = st.session_state.checkbox_pending_pinned - st.session_state.pinned_symbols
+        removed_pending = st.session_state.pinned_symbols - st.session_state.checkbox_pending_pinned
+        
+        if added_pending or removed_pending:
+            # st.markdown("<div style='margin-top: -20px;'></div>", unsafe_allow_html=True)
+            st.markdown("<span style='font-size: 0.875rem;'>변경 예정</span>", unsafe_allow_html=True)
+            
+            # 하나의 블록 안에 추가/제거 항목을 모두 표시
+            status_html = "<div style='font-size: 0.875em; padding: 0.6rem; background-color: #262730; border-radius: 0.5rem; margin-bottom: 0.5rem;'>"
+            
+            items = []
+            if added_pending:
+                items.extend([f"<span style='background-color: #00C292; color: #FFFFFF; padding: 0.2rem 0.4rem; border-radius: 0.3rem; margin-right: 0.3rem;'>➕ {s}</span>" for s in sorted(added_pending)])
+            
+            if removed_pending:
+                items.extend([f"<span style='background-color: #FF7272; color: #FFFFFF; padding: 0.2rem 0.4rem; border-radius: 0.3rem; margin-right: 0.3rem;'>➖ {s}</span>" for s in sorted(removed_pending)])
+            
+            status_html += " ".join(items)
+            status_html += "</div>"
+            st.markdown(status_html, unsafe_allow_html=True)
 
-            # pending 상태와 DB 저장 상태 비교
-            added = st.session_state.checkbox_pending_pinned - st.session_state.pinned_symbols
-            removed = st.session_state.pinned_symbols - st.session_state.checkbox_pending_pinned
-            debug_info.append(f"추가할 종목: {sorted(added)}")
-            debug_info.append(f"제거할 종목: {sorted(removed)}")
-
-            # 새 세션으로 DB 작업
-            from infrastructure.database.connection import SessionLocal
-            fresh_db = SessionLocal()
-            fresh_repo = PinnedSymbolRepository(fresh_db)
-
-            try:
-                # DB 동기화
-                for symbol in added:
-                    result = fresh_repo.add(symbol, market)
-                    debug_info.append(f"추가: {symbol} -> {result}")
-
-                for symbol in removed:
-                    result = fresh_repo.remove(symbol)
-                    debug_info.append(f"제거: {symbol} -> {result}")
-
-                # 커밋
-                fresh_db.commit()
-                debug_info.append("커밋 완료")
-
-                # DB에서 실제 확인
-                db_check = fresh_repo.get_all_active(market=market)
-                db_symbols = set([p.symbol for p in db_check])
-                debug_info.append(f"DB 확인 결과: {sorted(db_symbols)}")
-
-                # 세션 상태를 DB 확인 결과로 즉시 업데이트
-                st.session_state.pinned_symbols = db_symbols
-                st.session_state.checkbox_pending_pinned = db_symbols.copy()
-
-            finally:
-                fresh_db.close()
-
-            # 저장 완료 메시지 (DB 확인 결과 사용)
-            if db_symbols:
-                st.session_state.save_message = f"{len(db_symbols)}개의 지정 종목이 DB에 저장되었습니다."
-                st.session_state.save_info = "지정 종목: " + ", ".join(sorted(db_symbols)) + "\n\n" + "\n".join(debug_info)
-            else:
-                st.session_state.save_message = "지정된 종목이 없습니다."
-                st.session_state.save_info = "\n".join(debug_info)
-
-        except Exception as e:
-            import traceback
-            st.session_state.save_message = f"저장 중 오류 발생: {e}"
-            st.session_state.save_info = traceback.format_exc()
-
-        st.rerun()
+    # 지정종목저장 버튼 처리는 상단에서 이미 처리됨 (중복 제거)
 
     # 다운로드 버튼 - 스크리닝 결과가 있을 때만 표시
     if data:
@@ -930,20 +910,6 @@ def main():
             file_name=file_name,
             mime="text/csv"
         )
-
-    # 저장 완료 메시지 표시 (CSV 다운로드 아래)
-    if 'save_message' in st.session_state:
-        if st.session_state.get('save_info'):
-            st.success(st.session_state.save_message)
-            st.info(st.session_state.save_info)
-        else:
-            st.warning(st.session_state.save_message)
-        # 메시지 표시 후 삭제
-        del st.session_state.save_message
-        if 'save_info' in st.session_state:
-            del st.session_state.save_info
-
-    st.markdown("<hr style='margin: 1rem 0;'>", unsafe_allow_html=True)
 
     # 상세 정보 - 타이틀과 selectbox를 한 줄에
     title_col, select_col = st.columns([1, 3])

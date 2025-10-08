@@ -41,155 +41,6 @@ st.logo(
     icon_image=icon_path
 )
 
-# 로고 크기 조정 및 메뉴 스타일
-st.markdown("""
-<style>
-    /* Noto Sans KR 폰트 로드 */
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap');
-    /* Bootstrap Icons 로드 */
-    @import url('https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css');
-    /* Material Icons 로드 */
-    @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
-
-    /* 전체 폰트 적용 (아이콘 제외) */
-    html, body, [class*="css"] {
-        font-family: 'Noto Sans KR', sans-serif !important;
-    }
-
-    /* Streamlit 내부 요소 폰트 적용 */
-    p, h1, h2, h3, h4, h5, h6, label, input, textarea, select, button,
-    [data-testid] div, [data-testid] span, [data-testid] p,
-    .stMarkdown, .stText, .stCaption {
-        font-family: 'Noto Sans KR', sans-serif !important;
-    }
-
-    /* Material Icons 요소는 원래 폰트 유지 */
-    .material-symbols-outlined,
-    [class*="material-icons"],
-    span[data-testid*="stIcon"],
-    button span,
-    [role="button"] span {
-        font-family: 'Material Symbols Outlined', 'Material Icons' !important;
-    }
-
-    /* 로고 영역 스타일 */
-    [data-testid="stSidebarNav"] {
-        padding-top: 0 !important;
-        overflow: visible !important;
-    }
-
-    /* 사이드바 전체 overflow 허용 */
-    section[data-testid="stSidebar"] {
-        overflow: visible !important;
-    }
-    section[data-testid="stSidebar"] > div {
-        overflow: visible !important;
-    }
-
-    /* 로고 컨테이너 */
-    [data-testid="stSidebarNav"] > div:first-child {
-        padding: 2.4rem 0.6rem !important;
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-        width: 100% !important;
-        overflow: visible !important;
-    }
-
-    /* 로고 링크 영역 */
-    [data-testid="stSidebarNav"] a {
-        display: block !important;
-        width: 100% !important;
-        overflow: visible !important;
-    }
-
-    /* 로고 이미지 크기 - 1.6배 확대 (transform 사용) : Streamlit 고유 스타일 영역으로 사이즈 조정 안됨  */
-    [data-testid="stSidebarNav"] img {
-        width: 100% !important;
-        max-width: 100% !important;
-        height: auto !important;
-        transform: scale(1.6) !important;
-        transform-origin: center center !important;
-        margin: 0 !important;
-    }
-
-    /* 네비게이션 메뉴와 로고 사이 간격 */
-    [data-testid="stSidebarNav"] ul {
-        margin-top: 1rem !important;
-    }
-
-    /* 메뉴명 좌측 정렬 */
-    [data-testid="stSidebarNav"] ul li a {
-        text-align: left !important;
-        justify-content: flex-start !important;
-    }
-
-    /* 선택된 메뉴 스타일 */
-    [data-testid="stSidebarNav"] ul li a[aria-current="page"] {
-        background-color: #54A0FD !important;
-        font-weight: 600 !important;
-        border-radius: 4px !important;
-    }
-
-    /* 페이지 폰트 및 여백 통일 */
-    h1 {
-        font-size: 1.8rem !important;
-        margin-top: 0.5rem !important;
-        margin-bottom: 0.5rem !important;
-    }
-    h2 {
-        font-size: 1.3rem !important;
-        margin-top: 0.8rem !important;
-        margin-bottom: 0.5rem !important;
-    }
-    h3 {
-        font-size: 1.1rem !important;
-        margin-top: 0.6rem !important;
-        margin-bottom: 0.4rem !important;
-    }
-    hr {
-        margin-top: 0.8rem !important;
-        margin-bottom: 0.8rem !important;
-    }
-    .block-container {
-        padding-top: 2rem !important;
-        padding-bottom: 1rem !important;
-    }
-
-    /* 셀렉트박스 폰트 크기 조정 */
-    [data-testid="stSelectbox"] label {
-        font-size: 0.875rem !important;
-    }
-    [data-testid="stSelectbox"] div[data-baseweb="select"] {
-        font-size: 0.875rem !important;
-    }
-    [data-testid="stSelectbox"] div[data-baseweb="select"] > div {
-        font-size: 0.875rem !important;
-    }
-
-    /* 드롭다운 메뉴 폰트 크기 조정 */
-    ul[role="listbox"] li {
-        font-size: 0.875rem !important;
-    }
-    div[role="listbox"] div {
-        font-size: 0.875rem !important;
-    }
-
-    /* 상단 더보기 메뉴 폰트 크기 */
-    [data-testid="stAppViewBlockContainer"] button[kind="header"] {
-        font-size: 0.875rem !important;
-    }
-    div[data-baseweb="popover"] ul li {
-        font-size: 0.875rem !important;
-    }
-    div[data-baseweb="popover"] button {
-        font-size: 0.875rem !important;
-    }
-
-
-</style>
-""", unsafe_allow_html=True)
-
 # 세션 상태 초기화
 def init_session_state():
     """세션 상태 초기화"""
@@ -238,6 +89,10 @@ def get_services():
 
 def main():
     """메인 페이지"""
+    # 전역 스타일 적용
+    from presentation.styles.global_styles import apply_global_styles
+    apply_global_styles()
+    
     init_session_state()
 
     # 헤더

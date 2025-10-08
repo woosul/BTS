@@ -139,7 +139,7 @@ class ScreeningService:
                 }
 
             except Exception as e:
-                logger.warning(f"{symbol} 데이터 수집 실패: {e}")
+                logger.debug(f"{symbol} 데이터 수집 실패: {e}")
                 continue
 
         return market_data_dict
