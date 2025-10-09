@@ -10,9 +10,11 @@ from typing import Optional
 import sys
 from pathlib import Path
 
+
 # 프로젝트 루트를 Python 경로에 추가
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
+
 
 from infrastructure.database.connection import get_db_session
 from application.services.wallet_service import WalletService
@@ -32,6 +34,16 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# 전역 버튼 스타일 (number input 버튼 제외)
+st.markdown("""
+    <style>
+    /* 모든 버튼의 border-radius를 0으로 설정 (number input 제외) */
+    button:not([data-testid="stNumberInput"] button) {
+        border-radius: 0 !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # 사이드바 로고 설정
 logo_path = str(project_root / "resource" / "image" / "peaknine_logo_01.svg")

@@ -15,6 +15,7 @@ from domain.entities.filter_profile import (
     FilterProfileUpdate
 )
 from infrastructure.repositories.filter_profile_repository import FilterProfileRepository
+from infrastructure.repositories.filtered_symbol_repository import FilteredSymbolRepository
 from infrastructure.exchanges.base_exchange import BaseExchange
 from utils.logger import get_logger
 
@@ -28,6 +29,7 @@ class FilteringService:
         self.db = db
         self.exchange = exchange
         self.repo = FilterProfileRepository(db)
+        self.filtered_symbol_repo = FilteredSymbolRepository(db)
         # 필터링 과정에서 수집된 데이터 캐시
         self._symbol_data_cache: Dict[str, Dict[str, Any]] = {}
         logger.info("FilteringService 초기화 완료")
@@ -697,3 +699,78 @@ class FilteringService:
     def deactivate_profile(self, profile_id: int) -> bool:
         """프로파일 비활성화"""
         return self.repo.deactivate(profile_id)
+    
+    # ===== 필터링 결과 저장/조회 =====
+    
+    def save_filtered_symbols(self, symbols: List[str], profile_name: Optional[str] = None) -> bool:
+        """
+        필터링 결과를 DB에 저장
+        기존 데이터는 모두 삭제됨
+        
+        Args:
+            symbols: 필터링된 종목 코드 리스트
+            profile_name: 필터 프로파일명 (optional)
+            
+        Returns:
+            성공 여부
+        """
+        try:
+            return self.filtered_symbol_repo.save_symbols(symbols, profile_name)
+        except Exception as e:
+            logger.error(f"필터링 결과 저장 실패: {e}")
+            return False
+    
+    def get_saved_symbols(self) -> List[str]:
+        """
+        저장된 필터링 결과 조회
+        
+        Returns:
+            종목 코드 리스트
+        """
+        try:
+            return self.filtered_symbol_repo.get_latest_symbols()
+        except Exception as e:
+            logger.error(f"저장된 필터링 결과 조회 실패: {e}")
+            return []
+    
+    def get_saved_symbols_count(self) -> int:
+        """
+        저장된 종목 수 조회
+        
+        Returns:
+            종목 수
+        """
+        try:
+            return self.filtered_symbol_repo.count()
+        except Exception as e:
+            logger.error(f"저장된 종목 수 조회 실패: {e}")
+            return 0
+    
+    def get_last_filtered_time(self) -> Optional[str]:
+        """
+        마지막 필터링 시각 조회
+        
+        Returns:
+            마지막 필터링 시각 (포맷: YYYY-MM-DD HH:MM:SS)
+        """
+        try:
+            filtered_at = self.filtered_symbol_repo.get_latest_filtered_at()
+            if filtered_at:
+                return filtered_at.strftime('%Y-%m-%d %H:%M:%S')
+            return None
+        except Exception as e:
+            logger.error(f"마지막 필터링 시각 조회 실패: {e}")
+            return None
+    
+    def get_saved_profile_name(self) -> Optional[str]:
+        """
+        저장된 필터링 결과의 프로파일명 조회
+        
+        Returns:
+            프로파일명
+        """
+        try:
+            return self.filtered_symbol_repo.get_profile_name()
+        except Exception as e:
+            logger.error(f"저장된 프로파일명 조회 실패: {e}")
+            return None

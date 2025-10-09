@@ -440,6 +440,25 @@ class FilterProfileORM(Base):
         return f"<FilterProfile(id={self.id}, name={self.name}, market={self.market})>"
 
 
+# ===== 필터링 결과 모델 =====
+class FilteredSymbolORM(Base):
+    """필터링된 종목 테이블 - 마지막 필터링 결과만 저장"""
+    __tablename__ = "filtered_symbols"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    symbol: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    profile_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    filtered_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        default=func.now(),
+        index=True
+    )
+
+    def __repr__(self):
+        return f"<FilteredSymbol(id={self.id}, symbol={self.symbol}, profile_name={self.profile_name}, filtered_at={self.filtered_at})>"
+
+
 if __name__ == "__main__":
     # ORM 모델 테스트
     from infrastructure.database.connection import engine, init_db

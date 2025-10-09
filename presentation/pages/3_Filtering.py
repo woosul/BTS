@@ -27,7 +27,7 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 st.set_page_config(
-    page_title="필터링 - BTS",
+    page_title="Filtering - BTS",
     page_icon="🔍",
     layout="wide"
 )
@@ -120,10 +120,10 @@ def render_filter_condition_ui(market: str, loaded_conditions: FilterCondition =
             flex-shrink: 0;
         }
         
-        /* h5와 배지를 포함한 컨테이너 정렬 */
-        [data-testid="stSidebar"] h5 {
-            display: flex;
-            align-items: center;
+        /* h5와 배지를 포함한 컨테이너 정렬 - 직접 자식만 */
+        [data-testid="stSidebar"] div[data-testid="stMarkdownContainer"] h5 {
+            display: flex !important;
+            align-items: center !important;
         }
         
         /* 전체 사이트 체크박스 border radius - 매우 구체적인 선택자 */
@@ -408,6 +408,8 @@ def main():
         st.markdown("#### 저장된 프로파일")
         profiles = filtering_service.get_all_profiles(market=market)
         
+        selected_profile_name = "새 프로파일"  # 기본값 설정
+        
         if profiles:
             profile_names = ["새 프로파일"] + [p.name for p in profiles]
             
@@ -491,14 +493,6 @@ def main():
     # 메인: 필터 테스트 및 통계
     st.markdown("## 필터 테스트")
     
-    col1, col2 = st.columns([1, 3])
-    
-    with col1:
-        run_test_button = st.button("필터 테스트 실행", type="primary")
-    
-    with col2:
-        st.info("현재 시장의 모든 종목에 필터를 적용하여 결과를 확인합니다.")
-    
     # 세션 상태 초기화
     if 'filter_cache' not in st.session_state:
         st.session_state.filter_cache = {}
@@ -506,6 +500,89 @@ def main():
         st.session_state.filter_results = None
     if 'filter_stats' not in st.session_state:
         st.session_state.filter_stats = None
+    if 'filter_initial_count' not in st.session_state:
+        st.session_state.filter_initial_count = None
+    if 'is_from_saved' not in st.session_state:
+        st.session_state.is_from_saved = False
+    
+    # 버튼 스타일 CSS - 간격 16px, 버튼 크기 조정 (사이드바 제외)
+    st.markdown("""
+        <style>
+        /* 버튼 컬럼 간격 조정 - 메인 컨텐츠만 */
+        [data-testid="stAppViewBlockContainer"] div[data-testid="column"] {
+            padding-left: 8px !important;
+            padding-right: 8px !important;
+        }
+        [data-testid="stAppViewBlockContainer"] div[data-testid="column"]:first-child {
+            padding-left: 0 !important;
+        }
+        /* 버튼 내부 패딩 조정 - 메인 컨텐츠만 */
+        [data-testid="stAppViewBlockContainer"] button {
+            padding: 0.4rem 0.6rem !important;
+            white-space: nowrap !important;
+            font-size: 0.875rem !important;
+            min-width: 120px !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    # 버튼과 메시지 창을 가로로 배치
+    col1, col2, col3, col_msg = st.columns([1.2, 1.2, 1.5, 8], gap="small")
+    
+    with col1:
+        # 필터 실행 버튼
+        run_test_button = st.button("필터 실행", type="primary", use_container_width=True)
+    
+    with col2:
+        # 결과 저장 버튼 (필터링 후에만 활성화)
+        save_button_disabled = st.session_state.filter_results is None
+        save_button = st.button("결과 저장", use_container_width=True, disabled=save_button_disabled)
+    
+    with col3:
+        # 저장된 결과 불러오기 버튼
+        saved_count = filtering_service.get_saved_symbols_count()
+        load_button = st.button(f"저장 결과 ({saved_count})", use_container_width=True)
+    
+    with col_msg:
+        # 필터 실행 전/후에 따라 다른 메시지 표시 (다크 모드 스타일)
+        if st.session_state.filter_results is None:
+            message_html = """
+                <div style="
+                    background-color: #1e3a4c;
+                    border: 1px solid #2d5468;
+                    color: #a8d5e2;
+                    padding: 0.5rem 0.75rem;
+                    font-size: 0.875rem;
+                    display: flex;
+                    align-items: center;
+                    border-radius: 4px;
+                    height: 40px;
+                    box-sizing: border-box;
+                ">
+                    현재 시장의 모든 종목에 필터를 적용하여 결과를 확인합니다.
+                </div>
+            """
+        else:
+            filtered_count = len(st.session_state.filter_results)
+            initial_count = st.session_state.filter_initial_count or 0
+            message_html = f"""
+                <div style="
+                    background-color: #1e3a4c;
+                    border: 1px solid #2d5468;
+                    color: #a8d5e2;
+                    padding: 0.5rem 0.75rem;
+                    font-size: 0.875rem;
+                    display: flex;
+                    align-items: center;
+                    border-radius: 4px;
+                    height: 40px;
+                    box-sizing: border-box;
+                ">
+                    필터링된 종목: <strong style="margin-left: 0.5rem;">{filtered_count}</strong> / {initial_count}
+                </div>
+            """
+        
+        st.markdown(message_html, unsafe_allow_html=True)
     
     if run_test_button:
         with st.spinner("필터링 중..."):
@@ -514,7 +591,8 @@ def main():
                 exchange = UpbitClient(settings.upbit_access_key, settings.upbit_secret_key)
                 all_symbols = exchange.get_market_symbols(market)
                 
-                st.info(f"초기 종목 수: {len(all_symbols)}개")
+                # 초기 종목 수 저장
+                st.session_state.filter_initial_count = len(all_symbols)
                 
                 # 임시 프로파일 생성
                 temp_profile = FilterProfile(
@@ -534,14 +612,57 @@ def main():
                 st.session_state.filter_results = filtered_symbols
                 st.session_state.filter_stats = stats_list
                 st.session_state.filter_conditions = conditions  # 필터 조건도 저장
+                # 프로파일명 저장: 로드된 프로파일이 있으면 그 이름, 없으면 선택된 프로파일명 사용
+                if 'loaded_profile' in st.session_state and selected_profile_name != "새 프로파일":
+                    st.session_state.filter_profile_name = selected_profile_name
+                else:
+                    st.session_state.filter_profile_name = selected_profile_name if selected_profile_name != "새 프로파일" else "테스트"
+                st.session_state.is_from_saved = False  # 새로 실행한 결과
                 
-                st.success(f"필터링 완료! 최종 종목 수: {len(filtered_symbols)}개")
+                # 페이지 리로드하여 info 메시지 업데이트
+                st.rerun()
                 
             except Exception as e:
                 logger.error(f"필터 테스트 실패: {e}")
                 st.error(f"테스트 실패: {e}")
                 import traceback
                 st.text(traceback.format_exc())
+    
+    # 결과 저장 버튼 처리
+    if save_button:
+        if st.session_state.filter_results:
+            try:
+                # 프로파일명 가져오기 (없으면 "테스트")
+                profile_name = st.session_state.get('filter_profile_name', '테스트')
+                success = filtering_service.save_filtered_symbols(
+                    st.session_state.filter_results,
+                    profile_name
+                )
+                if success:
+                    st.success(f"✓ 필터링 결과 저장 완료: {len(st.session_state.filter_results)}개 종목 (프로파일: {profile_name})")
+                    st.rerun()
+                else:
+                    st.error("필터링 결과 저장 실패")
+            except Exception as e:
+                st.error(f"저장 실패: {e}")
+                logger.error(f"필터링 결과 저장 실패: {e}")
+    
+    # 저장된 결과 불러오기 버튼 처리
+    if load_button:
+        try:
+            saved_symbols = filtering_service.get_saved_symbols()
+            if saved_symbols:
+                # 세션에 저장된 결과 로드
+                st.session_state.filter_results = saved_symbols
+                st.session_state.filter_initial_count = len(saved_symbols)  # 초기 수를 saved 개수로
+                st.session_state.filter_stats = []  # 통계는 없음
+                st.session_state.is_from_saved = True  # 저장된 결과에서 로드했음을 표시
+                st.rerun()
+            else:
+                st.warning("저장된 필터링 결과가 없습니다.")
+        except Exception as e:
+            st.error(f"불러오기 실패: {e}")
+            logger.error(f"저장된 결과 불러오기 실패: {e}")
     
     # 필터링 결과 표시 (세션에서 가져옴)
     if st.session_state.filter_results is not None and st.session_state.filter_stats is not None:
@@ -577,13 +698,78 @@ def main():
             )
         
         # 필터링된 종목 목록 (상세 테이블)
-        st.markdown("### 필터링된 종목 목록")
+        # 저장된 결과인지 확인
+        is_from_saved = st.session_state.get('is_from_saved', False)
+        if is_from_saved:
+            # 마지막 필터링 시각 및 프로파일명 조회
+            last_time = filtering_service.get_last_filtered_time()
+            profile_name = filtering_service.get_saved_profile_name()
+            
+            # 제목과 부가 정보를 같은 줄에 표시 (제목 옆에 24px gap, 수직 가운데 정렬)
+            info_parts = []
+            if profile_name:
+                info_parts.append(f"프로파일: <strong>{profile_name}</strong>")
+            if last_time:
+                info_parts.append(f"저장 시각: {last_time}")
+            
+            info_text = " | ".join(info_parts) if info_parts else ""
+            
+            st.markdown(
+                f"""
+                <div style='display: flex; align-items: baseline; margin-bottom: 1rem;'>
+                    <h3 style='margin: 0; padding: 0;'>필터링된 종목 목록 [+]</h3>
+                    <span style='margin-left: 24px; padding-top: 2px; font-size: 0.9rem; color: #4a5568;'>{info_text}</span>
+                </div>
+                """, 
+                unsafe_allow_html=True
+            )
+        else:
+            st.markdown("### 필터링된 종목 목록")
+        
         if st.session_state.filter_results:
             try:
                 import pandas as pd
                 
-                # 상세 데이터 조회 (필터링 과정에서 캐시된 데이터 사용)
-                details = filtering_service.get_symbol_details(st.session_state.filter_results)
+                # 저장된 결과인 경우 실시간 데이터 조회 필요
+                if is_from_saved:
+                    # 캐시가 비어있으므로 Exchange API를 통해 실시간 데이터 조회
+                    with st.spinner("상세 정보 조회 중..."):
+                        exchange = UpbitClient(settings.upbit_access_key, settings.upbit_secret_key)
+                        details = []
+                        for i, symbol in enumerate(st.session_state.filter_results, 1):
+                            try:
+                                # Ticker 상세 정보 조회 (현재가 + 거래대금)
+                                ticker_detail = exchange.get_ticker_detail(symbol)
+                                
+                                details.append({
+                                    'no': i,
+                                    'symbol': symbol,
+                                    'korean_name': '-',
+                                    'trading_value': ticker_detail.get('acc_trade_price_24h', 0),
+                                    'market_cap': None,
+                                    'listing_days': None,
+                                    'current_price': ticker_detail.get('trade_price', 0),
+                                    'volatility': None,
+                                    'spread': None,
+                                    'note': ''
+                                })
+                            except Exception as e:
+                                logger.error(f"{symbol} 상세 정보 조회 실패: {e}")
+                                details.append({
+                                    'no': i,
+                                    'symbol': symbol,
+                                    'korean_name': '-',
+                                    'trading_value': 0,
+                                    'market_cap': None,
+                                    'listing_days': None,
+                                    'current_price': 0,
+                                    'volatility': None,
+                                    'spread': None,
+                                    'note': '조회 실패'
+                                })
+                else:
+                    # 필터링 직후에는 캐시된 데이터 사용
+                    details = filtering_service.get_symbol_details(st.session_state.filter_results)
                 
                 # 필터 조건 가져오기
                 filter_cond = st.session_state.get('filter_conditions')
@@ -666,66 +852,208 @@ def main():
     st.markdown("---")
     st.markdown("## 저장된 프로파일")
     
+    # Expander 제목의 폰트 크기를 0.875rem으로 조정하는 CSS
+    st.markdown("""
+        <style>
+        [data-testid="stExpander"] summary p {
+            font-size: 0.875rem !important;
+        }
+        [data-testid="stExpander"] div[data-testid="stMarkdownContainer"] p {
+            font-size: 0.875rem !important;
+        }
+        </style>
+    """, unsafe_allow_html=True)
+    
     profiles = filtering_service.get_all_profiles()
     
     if profiles:
         for profile in profiles:
             status_text = "[활성]" if profile.is_active else "[비활성]"
-            with st.expander(f"{status_text} {profile.name} ({profile.market})"):
-                col1, col2, col3 = st.columns([2, 1, 1])
+            with st.expander(f"{status_text} {profile.name} ({profile.market})", expanded=False):
+                # 프로파일 정보와 버튼을 같은 줄에 배치
+                col_info, col_btn1, col_btn2 = st.columns([6, 1, 1])
                 
-                with col1:
-                    st.write(f"**설명**: {profile.description or '없음'}")
-                    st.write(f"**생성일**: {profile.created_at.strftime('%Y-%m-%d %H:%M')}")
-                    st.write(f"**상태**: {'활성화' if profile.is_active else '비활성화'}")
+                with col_info:
+                    # 테이블 border 제거 CSS 및 좌측 항목 deep gray 적용
+                    st.markdown("""
+                        <style>
+                        .profile-table table {
+                            border: none !important;
+                            font-size: 0.875rem;
+                            table-layout: fixed;
+                            width: 100%;
+                        }
+                        .profile-table th, .profile-table td {
+                            border: none !important;
+                            padding: 4px 8px;
+                        }
+                        .profile-table th {
+                            color: #555;
+                            text-align: left;
+                            font-weight: normal;
+                        }
+                        .profile-table th:first-child {
+                            width: 180px;
+                        }
+                        .profile-table th:nth-child(2) {
+                            width: auto;
+                        }
+                        .profile-table td:first-child {
+                            color: #555;
+                            width: 180px;
+                            white-space: nowrap;
+                        }
+                        .profile-table td:nth-child(2) {
+                            width: auto;
+                        }
+                        </style>
+                    """, unsafe_allow_html=True)
+                    
+                    # 필터 조건 수집
+                    cond = profile.conditions
+                    filters_active = []
+                    if cond.exclude_delisting:
+                        filters_active.append(("상장폐지 제외", "제외"))
+                    if cond.exclude_suspended:
+                        filters_active.append(("거래정지 제외", "제외"))
+                    if cond.min_trading_value:
+                        filters_active.append(("거래대금", f"≥ {cond.min_trading_value/1e9:.1f}B"))
+                    if cond.min_market_cap or cond.max_market_cap:
+                        min_cap = f"{cond.min_market_cap/1e9:.1f}B" if cond.min_market_cap else "없음"
+                        max_cap = f"{cond.max_market_cap/1e9:.1f}B" if cond.max_market_cap else "없음"
+                        filters_active.append(("시가총액", f"{min_cap} ~ {max_cap}"))
+                    if cond.min_listing_days:
+                        filters_active.append(("상장기간", f"≥ {cond.min_listing_days}일"))
+                    if cond.min_price or cond.max_price:
+                        min_price = f"{cond.min_price:,}원" if cond.min_price else "없음"
+                        max_price = f"{cond.max_price:,}원" if cond.max_price else "없음"
+                        filters_active.append(("가격범위", f"{min_price} ~ {max_price}"))
+                    if cond.min_volatility or cond.max_volatility:
+                        filters_active.append(("변동성", f"{cond.min_volatility}% ~ {cond.max_volatility}%"))
+                    if cond.max_spread:
+                        filters_active.append(("스프레드", f"≤ {cond.max_spread}%"))
+                    
+                    # 마크다운 테이블 생성
+                    markdown_content = '<div class="profile-table">\n\n'
+                    markdown_content += "| 항목 | 값 |\n"
+                    markdown_content += "|------|------|\n"
+                    markdown_content += f"| 설명 | {profile.description or '없음'} |\n"
+                    markdown_content += f"| 생성일 | {profile.created_at.strftime('%Y-%m-%d %H:%M')} |\n"
+                    markdown_content += f"| 상태 | {'활성화' if profile.is_active else '비활성화'} |\n"
+                    markdown_content += "| [적용된 필터조건] | |\n"
+                    
+                    if filters_active:
+                        for filter_name, filter_value in filters_active:
+                            markdown_content += f"| {filter_name} | {filter_value} |\n"
+                    else:
+                        markdown_content += "| 필터 | 없음 |\n"
+                    
+                    markdown_content += '\n</div>'
+                    st.markdown(markdown_content, unsafe_allow_html=True)
                 
-                with col2:
+                with col_btn1:
                     if profile.is_active:
-                        if st.button("비활성화", key=f"deactivate_{profile.id}"):
+                        if st.button("비활성화", key=f"deactivate_{profile.id}", use_container_width=True):
                             filtering_service.deactivate_profile(profile.id)
                             st.success("비활성화되었습니다.")
                             st.rerun()
                     else:
-                        if st.button("활성화", key=f"activate_{profile.id}"):
+                        if st.button("활성화", key=f"activate_{profile.id}", use_container_width=True):
                             filtering_service.activate_profile(profile.id)
                             st.success("활성화되었습니다.")
                             st.rerun()
                 
-                with col3:
-                    if st.button("삭제", key=f"delete_{profile.id}", type="secondary"):
-                        if filtering_service.delete_profile(profile.id):
-                            st.success("삭제되었습니다.")
-                            st.rerun()
-                        else:
-                            st.error("삭제 실패")
+                with col_btn2:
+                    if st.button("삭제", key=f"delete_{profile.id}", type="secondary", use_container_width=True):
+                        # 삭제 확인을 위한 session_state 설정
+                        st.session_state[f'confirm_delete_{profile.id}'] = True
+                        st.rerun()
                 
-                # 필터 조건 표시
-                st.markdown("**적용된 필터 조건**:")
-                cond = profile.conditions
-                
-                filters_active = []
-                if cond.exclude_delisting:
-                    filters_active.append("• 상장폐지 제외")
-                if cond.exclude_suspended:
-                    filters_active.append("• 거래정지 제외")
-                if cond.min_trading_value:
-                    filters_active.append(f"• 거래대금 ≥ {cond.min_trading_value/1e9:.1f}B")
-                if cond.min_market_cap or cond.max_market_cap:
-                    filters_active.append("• 시가총액 필터")
-                if cond.min_listing_days:
-                    filters_active.append(f"• 상장기간 ≥ {cond.min_listing_days}일")
-                if cond.min_price or cond.max_price:
-                    filters_active.append("• 가격범위 필터")
-                if cond.min_volatility or cond.max_volatility:
-                    filters_active.append(f"• 변동성 {cond.min_volatility}~{cond.max_volatility}%")
-                if cond.max_spread:
-                    filters_active.append(f"• 스프레드 ≤ {cond.max_spread}%")
-                
-                if filters_active:
-                    for f in filters_active:
-                        st.write(f)
-                else:
-                    st.write("필터 없음")
+                # 삭제 확인 모달 (expander 밖으로 이동)
+                if st.session_state.get(f'confirm_delete_{profile.id}', False):
+                    @st.dialog("프로파일 삭제 확인")
+                    def confirm_delete():
+                        # 모달 중앙 배치 및 드래그 가능 CSS
+                        st.markdown("""
+                            <style>
+                            /* 모달을 화면 중앙에 배치 */
+                            [data-testid="stDialog"] {
+                                position: fixed !important;
+                                top: 50% !important;
+                                left: 50% !important;
+                                transform: translate(-50%, -50%) !important;
+                                margin: 0 !important;
+                            }
+                            
+                            /* 모달 제목 영역을 드래그 핸들로 만들기 */
+                            [data-testid="stDialog"] > div:first-child {
+                                cursor: move !important;
+                                user-select: none !important;
+                            }
+                            </style>
+                            <script>
+                            // 모달 드래그 기능
+                            (function() {
+                                const dialog = document.querySelector('[data-testid="stDialog"]');
+                                if (!dialog || dialog.dataset.draggable) return;
+                                
+                                dialog.dataset.draggable = 'true';
+                                const header = dialog.querySelector('div:first-child');
+                                if (!header) return;
+                                
+                                let isDragging = false;
+                                let currentX, currentY, initialX, initialY;
+                                
+                                header.addEventListener('mousedown', dragStart);
+                                document.addEventListener('mousemove', drag);
+                                document.addEventListener('mouseup', dragEnd);
+                                
+                                function dragStart(e) {
+                                    if (e.target.tagName === 'BUTTON') return;
+                                    isDragging = true;
+                                    initialX = e.clientX - (dialog.offsetLeft || 0);
+                                    initialY = e.clientY - (dialog.offsetTop || 0);
+                                }
+                                
+                                function drag(e) {
+                                    if (!isDragging) return;
+                                    e.preventDefault();
+                                    currentX = e.clientX - initialX;
+                                    currentY = e.clientY - initialY;
+                                    dialog.style.left = currentX + 'px';
+                                    dialog.style.top = currentY + 'px';
+                                    dialog.style.transform = 'none';
+                                }
+                                
+                                function dragEnd() {
+                                    isDragging = false;
+                                }
+                            })();
+                            </script>
+                        """, unsafe_allow_html=True)
+                        
+                        st.warning(f"**'{profile.name}'** 프로파일을 정말 삭제하시겠습니까?")
+                        st.caption("이 작업은 되돌릴 수 없습니다.")
+                        
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("취소", key=f"cancel_delete_{profile.id}", use_container_width=True):
+                                # 안전하게 삭제
+                                if f'confirm_delete_{profile.id}' in st.session_state:
+                                    del st.session_state[f'confirm_delete_{profile.id}']
+                                st.rerun()
+                        with col2:
+                            if st.button("삭제 확인", key=f"confirm_delete_btn_{profile.id}", type="primary", use_container_width=True):
+                                if filtering_service.delete_profile(profile.id):
+                                    # 안전하게 삭제
+                                    if f'confirm_delete_{profile.id}' in st.session_state:
+                                        del st.session_state[f'confirm_delete_{profile.id}']
+                                    st.success("삭제되었습니다.")
+                                    st.rerun()
+                                else:
+                                    st.error("삭제 실패")
+                    
+                    confirm_delete()
     else:
         st.info("저장된 프로파일이 없습니다. 사이드바에서 새 프로파일을 생성하세요.")
 

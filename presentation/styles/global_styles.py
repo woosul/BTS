@@ -124,15 +124,23 @@ def apply_global_styles():
     /* ==================== 버튼 스타일 ==================== */
     button[data-testid^="stBaseButton"] {
         font-size: 0.875rem !important;
+        border-radius: 0 !important;
     }
     button[data-testid^="stBaseButton"] p {
         font-size: 0.875rem !important;
     }
     .stButton button {
         font-size: 0.875rem !important;
+        border-radius: 0 !important;
     }
     .stDownloadButton button {
         font-size: 0.875rem !important;
+        border-radius: 0 !important;
+    }
+    
+    /* 모든 버튼의 border-radius를 0으로 설정 (number input 제외) */
+    button:not([data-testid="stNumberInput"] button) {
+        border-radius: 0 !important;
     }
 
     /* ==================== 기타 UI 요소 ==================== */

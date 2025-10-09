@@ -137,3 +137,25 @@ class FilterProfileRepository(BaseRepository):
             logger.error(f"필터 프로파일 활성화 실패: {e}")
             self.db.rollback()
             return False
+    
+    def delete(self, profile_id: int) -> bool:
+        """필터 프로파일 삭제 (ORM 객체 직접 처리)"""
+        try:
+            stmt = select(self.model).where(self.model.id == profile_id)
+            orm = self.db.execute(stmt).scalar_one_or_none()
+            
+            if not orm:
+                logger.warning(f"삭제할 필터 프로파일을 찾을 수 없음: ID={profile_id}")
+                return False
+            
+            profile_name = orm.name
+            self.db.delete(orm)
+            self.db.commit()
+            
+            logger.info(f"필터 프로파일 삭제 완료: {profile_name} (ID: {profile_id})")
+            return True
+            
+        except Exception as e:
+            logger.error(f"필터 프로파일 삭제 실패 (ID={profile_id}): {e}")
+            self.db.rollback()
+            return False
