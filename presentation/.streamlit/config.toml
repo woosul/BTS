@@ -1,3 +1,13 @@
+[server]
+# Prevent browser from automatically opening
+headless = true
+
+[browser]
+# Prevent browser from automatically opening  
+gatherUsageStats = false
+serverAddress = "localhost"
+serverPort = 8501
+
 [theme]
 # Use dark theme base
 base = "dark"

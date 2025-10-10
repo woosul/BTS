@@ -3,6 +3,7 @@
 """
 import streamlit as st
 from typing import Dict, Optional
+from presentation.components.modal_utils import apply_modal_styles
 
 
 @st.dialog("매도 전략 설정", width="large")
@@ -22,6 +23,9 @@ def show_exit_config_modal(
     Returns:
         Optional[Dict]: 설정된 파라미터 (취소 시 None)
     """
+    # 모달창 공통 스타일 적용
+    apply_modal_styles()
+    
     st.markdown(f"### {strategy_name}")
 
     params = current_params.copy() if current_params else {}

@@ -132,7 +132,8 @@ class Settings(BaseSettings):
 
     # ===== 로깅 설정 =====
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
-        default="INFO",
+        # default="INFO",
+        default="DEBUG",
         description="로그 레벨"
     )
     log_file: str = Field(

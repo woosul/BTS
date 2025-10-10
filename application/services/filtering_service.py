@@ -702,30 +702,31 @@ class FilteringService:
     
     # ===== 필터링 결과 저장/조회 =====
     
-    def save_filtered_symbols(self, symbols: List[str], profile_name: Optional[str] = None) -> bool:
+    def save_filtered_symbols(self, symbols_data: List[Dict[str, Any]], profile_name: Optional[str] = None) -> bool:
         """
-        필터링 결과를 DB에 저장
+        필터링 결과를 DB에 저장 (상세 데이터 포함)
         기존 데이터는 모두 삭제됨
         
         Args:
-            symbols: 필터링된 종목 코드 리스트
+            symbols_data: 종목 상세 데이터 딕셔너리 리스트
+                예: [{'symbol': 'KRW-BTC', 'korean_name': '비트코인', 'trading_value': 1000000, ...}, ...]
             profile_name: 필터 프로파일명 (optional)
             
         Returns:
             성공 여부
         """
         try:
-            return self.filtered_symbol_repo.save_symbols(symbols, profile_name)
+            return self.filtered_symbol_repo.save_symbols(symbols_data, profile_name)
         except Exception as e:
             logger.error(f"필터링 결과 저장 실패: {e}")
             return False
     
-    def get_saved_symbols(self) -> List[str]:
+    def get_saved_symbols(self) -> List[Dict[str, Any]]:
         """
-        저장된 필터링 결과 조회
+        저장된 필터링 결과 조회 (상세 데이터 포함)
         
         Returns:
-            종목 코드 리스트
+            종목 상세 데이터 딕셔너리 리스트
         """
         try:
             return self.filtered_symbol_repo.get_latest_symbols()

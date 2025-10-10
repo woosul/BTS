@@ -52,6 +52,9 @@ class HybridScreening(BaseScreeningStrategy):
             "momentum_period_1d": True,
             "momentum_period_7d": True,
             "momentum_period_30d": True,
+            "momentum_period_1d_weight": 0.5,
+            "momentum_period_7d_weight": 0.3,
+            "momentum_period_30d_weight": 0.2,
             # Volume 세부 설정
             "volume_amount_weight": 0.5,
             "volume_surge_weight": 0.5,
@@ -98,6 +101,9 @@ class HybridScreening(BaseScreeningStrategy):
                     "period_1d": self.parameters.get("momentum_period_1d", True),
                     "period_7d": self.parameters.get("momentum_period_7d", True),
                     "period_30d": self.parameters.get("momentum_period_30d", True),
+                    "period_1d_weight": self.parameters.get("momentum_period_1d_weight", 0.5),
+                    "period_7d_weight": self.parameters.get("momentum_period_7d_weight", 0.3),
+                    "period_30d_weight": self.parameters.get("momentum_period_30d_weight", 0.2),
                 }
             )
 

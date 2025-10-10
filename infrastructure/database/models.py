@@ -454,6 +454,16 @@ class FilteredSymbolORM(Base):
         default=func.now(),
         index=True
     )
+    
+    # 필터링 결과 상세 데이터
+    korean_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    trading_value: Mapped[Optional[Decimal]] = mapped_column(Numeric(20, 2), nullable=True)  # 거래대금
+    market_cap: Mapped[Optional[Decimal]] = mapped_column(Numeric(20, 2), nullable=True)  # 시가총액
+    listing_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # 상장기간 (일)
+    current_price: Mapped[Optional[Decimal]] = mapped_column(Numeric(20, 8), nullable=True)  # 현재가
+    volatility: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 4), nullable=True)  # 변동성 (%)
+    spread: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 4), nullable=True)  # 스프레드 (%)
+    note: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)  # 비고
 
     def __repr__(self):
         return f"<FilteredSymbol(id={self.id}, symbol={self.symbol}, profile_name={self.profile_name}, filtered_at={self.filtered_at})>"

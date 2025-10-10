@@ -11,17 +11,21 @@ path = "pages/2_Virtual_Wallet.py"
 name = "Virtual Wallet"
 
 [[pages]]
-path = "pages/3_Screening.py"
+path = "pages/3_Filtering.py"
+name = "Filtering"
+
+[[pages]]
+path = "pages/4_Screening.py"
 name = "Screening"
 
 [[pages]]
-path = "pages/4_Strategy_Settings.py"
+path = "pages/5_Strategy_Settings.py"
 name = "Strategy Settings"
 
 [[pages]]
-path = "pages/5_Portfolio.py"
+path = "pages/6_Portfolio.py"
 name = "Portfolio"
 
 [[pages]]
-path = "pages/6_Backtest.py"
+path = "pages/7_Backtest.py"
 name = "Backtest"

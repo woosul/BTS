@@ -28,7 +28,7 @@ logger = get_logger(__name__)
 
 st.set_page_config(
     page_title="Filtering - BTS",
-    page_icon="🔍",
+    page_icon="�",
     layout="wide"
 )
 
@@ -263,7 +263,19 @@ def render_filter_condition_ui(market: str, loaded_conditions: FilterCondition =
     default_use_listing = bool(loaded_conditions and loaded_conditions.min_listing_days)
     use_listing_period = st.checkbox("상장기간 필터 사용", value=default_use_listing, disabled=not enabled)
     if use_listing_period:
-        st.warning("⚠️ **주의**: 상장기간 필터는 Upbit API Rate Limit으로 인해 실행 시간이 오래 걸립니다 (약 15~20초). 자주 사용하지 마세요.")
+        st.markdown("""
+            <div style='
+                background-color: #1e1e1e;
+                border: 1px solid #ffa500;
+                border-radius: 4px;
+                padding: 8px 12px;
+                margin: 8px 0;
+            '>
+                <div style='color: #ffa500; font-size: 0.85rem;'>
+                    <strong>주의</strong>: 상장기간 필터는 Upbit API Rate Limit으로 인해 실행 시간이 오래 걸립니다 (약 15~20초). 자주 사용하지 마세요.
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
     min_listing_days = None
     if use_listing_period:
         default_listing_days = loaded_conditions.min_listing_days if (loaded_conditions and loaded_conditions.min_listing_days) else 180
@@ -612,6 +624,10 @@ def main():
                 st.session_state.filter_results = filtered_symbols
                 st.session_state.filter_stats = stats_list
                 st.session_state.filter_conditions = conditions  # 필터 조건도 저장
+                
+                # 캐시된 상세 데이터도 저장 (저장 버튼 클릭 시 사용)
+                st.session_state.filter_details = filtering_service.get_symbol_details(filtered_symbols)
+                
                 # 프로파일명 저장: 로드된 프로파일이 있으면 그 이름, 없으면 선택된 프로파일명 사용
                 if 'loaded_profile' in st.session_state and selected_profile_name != "새 프로파일":
                     st.session_state.filter_profile_name = selected_profile_name
@@ -634,27 +650,54 @@ def main():
             try:
                 # 프로파일명 가져오기 (없으면 "테스트")
                 profile_name = st.session_state.get('filter_profile_name', '테스트')
-                success = filtering_service.save_filtered_symbols(
-                    st.session_state.filter_results,
-                    profile_name
-                )
-                if success:
-                    st.success(f"✓ 필터링 결과 저장 완료: {len(st.session_state.filter_results)}개 종목 (프로파일: {profile_name})")
-                    st.rerun()
+                
+                # 캐시된 상세 데이터 사용
+                filter_details = st.session_state.get('filter_details', [])
+                if not filter_details:
+                    st.error("저장할 상세 데이터가 없습니다. 필터를 다시 실행해주세요.")
                 else:
-                    st.error("필터링 결과 저장 실패")
+                    # 'no' 필드는 UI 표시용이므로 저장할 때 제거
+                    cleaned_details = []
+                    for detail in filter_details:
+                        cleaned_detail = {k: v for k, v in detail.items() if k != 'no'}
+                        cleaned_details.append(cleaned_detail)
+                    
+                    success = filtering_service.save_filtered_symbols(
+                        cleaned_details,
+                        profile_name
+                    )
+                    if success:
+                        st.markdown(f"""
+                            <div style='
+                                background-color: #1e1e1e;
+                                border: 1px solid #00ff00;
+                                border-radius: 4px;
+                                padding: 8px 12px;
+                                margin: 8px 0;
+                            '>
+                                <div style='color: #00ff00; font-size: 0.85rem;'>
+                                    필터링 결과 저장 완료: {len(cleaned_details)}개 종목 (프로파일: {profile_name})
+                                </div>
+                            </div>
+                        """, unsafe_allow_html=True)
+                        st.rerun()
+                    else:
+                        st.error("필터링 결과 저장 실패")
             except Exception as e:
                 st.error(f"저장 실패: {e}")
                 logger.error(f"필터링 결과 저장 실패: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
     
     # 저장된 결과 불러오기 버튼 처리
     if load_button:
         try:
-            saved_symbols = filtering_service.get_saved_symbols()
-            if saved_symbols:
-                # 세션에 저장된 결과 로드
-                st.session_state.filter_results = saved_symbols
-                st.session_state.filter_initial_count = len(saved_symbols)  # 초기 수를 saved 개수로
+            saved_details = filtering_service.get_saved_symbols()
+            if saved_details:
+                # 세션에 저장된 결과 로드 (상세 데이터 포함)
+                st.session_state.filter_details = saved_details
+                st.session_state.filter_results = [d['symbol'] for d in saved_details]  # 호환성을 위해 symbol 리스트도 유지
+                st.session_state.filter_initial_count = len(saved_details)  # 초기 수를 saved 개수로
                 st.session_state.filter_stats = []  # 통계는 없음
                 st.session_state.is_from_saved = True  # 저장된 결과에서 로드했음을 표시
                 st.rerun()
@@ -663,6 +706,8 @@ def main():
         except Exception as e:
             st.error(f"불러오기 실패: {e}")
             logger.error(f"저장된 결과 불러오기 실패: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
     
     # 필터링 결과 표시 (세션에서 가져옴)
     if st.session_state.filter_results is not None and st.session_state.filter_stats is not None:
@@ -730,45 +775,14 @@ def main():
             try:
                 import pandas as pd
                 
-                # 저장된 결과인 경우 실시간 데이터 조회 필요
-                if is_from_saved:
-                    # 캐시가 비어있으므로 Exchange API를 통해 실시간 데이터 조회
-                    with st.spinner("상세 정보 조회 중..."):
-                        exchange = UpbitClient(settings.upbit_access_key, settings.upbit_secret_key)
-                        details = []
-                        for i, symbol in enumerate(st.session_state.filter_results, 1):
-                            try:
-                                # Ticker 상세 정보 조회 (현재가 + 거래대금)
-                                ticker_detail = exchange.get_ticker_detail(symbol)
-                                
-                                details.append({
-                                    'no': i,
-                                    'symbol': symbol,
-                                    'korean_name': '-',
-                                    'trading_value': ticker_detail.get('acc_trade_price_24h', 0),
-                                    'market_cap': None,
-                                    'listing_days': None,
-                                    'current_price': ticker_detail.get('trade_price', 0),
-                                    'volatility': None,
-                                    'spread': None,
-                                    'note': ''
-                                })
-                            except Exception as e:
-                                logger.error(f"{symbol} 상세 정보 조회 실패: {e}")
-                                details.append({
-                                    'no': i,
-                                    'symbol': symbol,
-                                    'korean_name': '-',
-                                    'trading_value': 0,
-                                    'market_cap': None,
-                                    'listing_days': None,
-                                    'current_price': 0,
-                                    'volatility': None,
-                                    'spread': None,
-                                    'note': '조회 실패'
-                                })
+                # 저장된 상세 데이터 사용 (API 호출 없음)
+                if 'filter_details' in st.session_state and st.session_state.filter_details:
+                    details = st.session_state.filter_details
+                    # 순번 추가
+                    for i, detail in enumerate(details, 1):
+                        detail['no'] = i
                 else:
-                    # 필터링 직후에는 캐시된 데이터 사용
+                    # filter_details가 없는 경우 (구버전 데이터) - 캐시 사용
                     details = filtering_service.get_symbol_details(st.session_state.filter_results)
                 
                 # 필터 조건 가져오기
@@ -830,8 +844,8 @@ def main():
                     column_config={
                         '순번': st.column_config.NumberColumn('순번'),
                         '종목코드': st.column_config.TextColumn('종목코드'),
-                        '거래대금': st.column_config.NumberColumn('거래대금(억)', format='%.2f'),
-                        '시가총액': st.column_config.NumberColumn('시가총액(억)', format='%.2f'),
+                        '거래대금': st.column_config.NumberColumn('거래대금(억)', format='%.0f'),  # 소수점 없음
+                        '시가총액': st.column_config.NumberColumn('시가총액(억)', format='%.0f'),  # 소수점 없음
                         '상장기간': st.column_config.TextColumn('상장기간'),
                         '가격': st.column_config.NumberColumn('가격(원)', format='%.0f'),
                         '변동성': st.column_config.NumberColumn('변동성(%)', format='%.2f'),
@@ -973,64 +987,9 @@ def main():
                 if st.session_state.get(f'confirm_delete_{profile.id}', False):
                     @st.dialog("프로파일 삭제 확인")
                     def confirm_delete():
-                        # 모달 중앙 배치 및 드래그 가능 CSS
-                        st.markdown("""
-                            <style>
-                            /* 모달을 화면 중앙에 배치 */
-                            [data-testid="stDialog"] {
-                                position: fixed !important;
-                                top: 50% !important;
-                                left: 50% !important;
-                                transform: translate(-50%, -50%) !important;
-                                margin: 0 !important;
-                            }
-                            
-                            /* 모달 제목 영역을 드래그 핸들로 만들기 */
-                            [data-testid="stDialog"] > div:first-child {
-                                cursor: move !important;
-                                user-select: none !important;
-                            }
-                            </style>
-                            <script>
-                            // 모달 드래그 기능
-                            (function() {
-                                const dialog = document.querySelector('[data-testid="stDialog"]');
-                                if (!dialog || dialog.dataset.draggable) return;
-                                
-                                dialog.dataset.draggable = 'true';
-                                const header = dialog.querySelector('div:first-child');
-                                if (!header) return;
-                                
-                                let isDragging = false;
-                                let currentX, currentY, initialX, initialY;
-                                
-                                header.addEventListener('mousedown', dragStart);
-                                document.addEventListener('mousemove', drag);
-                                document.addEventListener('mouseup', dragEnd);
-                                
-                                function dragStart(e) {
-                                    if (e.target.tagName === 'BUTTON') return;
-                                    isDragging = true;
-                                    initialX = e.clientX - (dialog.offsetLeft || 0);
-                                    initialY = e.clientY - (dialog.offsetTop || 0);
-                                }
-                                
-                                function drag(e) {
-                                    if (!isDragging) return;
-                                    e.preventDefault();
-                                    currentX = e.clientX - initialX;
-                                    currentY = e.clientY - initialY;
-                                    dialog.style.left = currentX + 'px';
-                                    dialog.style.top = currentY + 'px';
-                                    dialog.style.transform = 'none';
-                                }
-                                
-                                function dragEnd() {
-                                    isDragging = false;
-                                }
-                            })();
-                            </script>
-                        """, unsafe_allow_html=True)
+                        # 모달창 공통 스타일 적용
+                        from presentation.components.modal_utils import apply_modal_styles
+                        apply_modal_styles()
                         
                         st.warning(f"**'{profile.name}'** 프로파일을 정말 삭제하시겠습니까?")
                         st.caption("이 작업은 되돌릴 수 없습니다.")

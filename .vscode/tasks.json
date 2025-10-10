@@ -1,0 +1,60 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Streamlit 실행",
+            "type": "shell",
+            "command": "source .venv/bin/activate && streamlit run presentation/Home.py",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "focus": true,
+                "clear": false
+            },
+            "runOptions": {
+                "instanceLimit": 1
+            }
+        },
+        {
+            "label": "Streamlit 백그라운드 실행",
+            "type": "shell",
+            "command": "source .venv/bin/activate && streamlit run presentation/Home.py",
+            "problemMatcher": [],
+            "isBackground": true,
+            "presentation": {
+                "reveal": "silent",
+                "panel": "dedicated",
+                "focus": false,
+                "clear": false
+            },
+            "runOptions": {
+                "instanceLimit": 1
+            }
+        },
+        {
+            "label": "터미널 실행로그 보기",
+            "type": "shell",
+            "command": "tail -f logs/bts.log",
+            "problemMatcher": [],
+            "isBackground": true,
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "focus": true,
+                "clear": false
+            }
+        },
+        {
+            "label": "MCP 브라우저 실행",
+            "type": "shell",
+            "command": "open http://localhost:8501",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "never",
+                "panel": "shared",
+                "focus": false
+            }
+        }
+    ]
+}

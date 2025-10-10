@@ -3,6 +3,7 @@
 """
 import streamlit as st
 from typing import Dict, Optional
+from presentation.components.modal_utils import apply_modal_styles
 
 
 @st.dialog("전략 설정", width="large")
@@ -22,6 +23,9 @@ def show_strategy_config_modal(
     Returns:
         Optional[Dict]: 설정된 파라미터 (취소 시 None)
     """
+    # 모달창 공통 스타일 적용
+    apply_modal_styles()
+    
     st.markdown(f"### {strategy_name} 전략 설정")
 
     params = current_params.copy() if current_params else {}
@@ -40,8 +44,12 @@ def show_strategy_config_modal(
     col1, col2 = st.columns(2)
     with col1:
         if st.button("적용", type="primary", use_container_width=True):
-            st.session_state[f"strategy_params_{strategy_type}"] = params
-            st.rerun()
+            # 전략별 검증 수행 (검증 실패 시 위의 메시지 블록에서 이미 표시됨)
+            validation_error = _validate_strategy_params(strategy_type, params)
+            
+            if not validation_error:
+                st.session_state[f"strategy_params_{strategy_type}"] = params
+                st.rerun()
     with col2:
         if st.button("취소", use_container_width=True):
             st.rerun()
@@ -51,7 +59,7 @@ def show_strategy_config_modal(
 
 def _momentum_config_ui(params: Dict) -> Dict:
     """모멘텀 전략 설정 UI"""
-    st.write("**가중치 설정** (합계 1.0)")
+    st.markdown("##### 가중치 설정 (합계 1.0)")
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -80,13 +88,40 @@ def _momentum_config_ui(params: Dict) -> Dict:
         )
 
     total = params["price_weight"] + params["volume_weight"] + params["rsi_weight"]
-    if abs(total - 1.0) > 0.01:
-        st.warning(f"가중치 합계: {total:.2f} (1.0이어야 함)")
+    is_valid = abs(total - 1.0) <= 0.01
+    
+    if not is_valid:
+        # 에러 상태: 빨간 테두리와 텍스트
+        st.markdown(f"""
+            <div style='
+                background-color: #262730;
+                border: 1px solid #ff4444;
+                border-radius: 4px;
+                padding: 8px 12px;
+                margin: 8px 0;
+            '>
+                <div style='color: #ff4444; font-size: 0.875rem;'>
+                    가중치 합계: {total:.2f} (1.0이어야 함)
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
     else:
-        st.success(f"가중치 합계: {total:.2f}")
+        # 정상 상태: 테두리 없이 회색 텍스트만
+        st.markdown(f"""
+            <div style='
+                background-color: #262730;
+                border-radius: 4px;
+                padding: 8px 12px;
+                margin: 8px 0;
+            '>
+                <div style='color: #6b7280; font-size: 0.875rem;'>
+                    가중치 합계: {total:.2f}
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
 
     st.markdown("---")
-    st.write("**기간 설정**")
+    st.markdown("##### 기간 설정")
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -98,13 +133,113 @@ def _momentum_config_ui(params: Dict) -> Dict:
 
     if not any([params.get("period_1d"), params.get("period_7d"), params.get("period_30d")]):
         st.error("최소 1개 기간을 선택해야 합니다.")
+    
+    st.markdown("---")
+    st.markdown("##### 기간별 가중치 (활성화된 기간의 합계 1.0)")
+    
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        if params.get("period_1d", True):
+            params["period_1d_weight"] = st.slider(
+                "1일 가중치",
+                0.0, 1.0,
+                params.get("period_1d_weight", 0.5),
+                0.05,
+                help="단기 모멘텀의 중요도"
+            )
+        else:
+            params["period_1d_weight"] = 0.0
+            st.slider(
+                "1일 가중치",
+                0.0, 1.0,
+                0.0,
+                0.05,
+                help="비활성화됨 (체크박스를 활성화하세요)",
+                disabled=True
+            )
+    
+    with col2:
+        if params.get("period_7d", True):
+            params["period_7d_weight"] = st.slider(
+                "7일 가중치",
+                0.0, 1.0,
+                params.get("period_7d_weight", 0.3),
+                0.05,
+                help="중기 모멘텀의 중요도"
+            )
+        else:
+            params["period_7d_weight"] = 0.0
+            st.slider(
+                "7일 가중치",
+                0.0, 1.0,
+                0.0,
+                0.05,
+                help="비활성화됨 (체크박스를 활성화하세요)",
+                disabled=True
+            )
+    
+    with col3:
+        if params.get("period_30d", True):
+            params["period_30d_weight"] = st.slider(
+                "30일 가중치",
+                0.0, 1.0,
+                params.get("period_30d_weight", 0.2),
+                0.05,
+                help="장기 모멘텀의 중요도"
+            )
+        else:
+            params["period_30d_weight"] = 0.0
+            st.slider(
+                "30일 가중치",
+                0.0, 1.0,
+                0.0,
+                0.05,
+                help="비활성화됨 (체크박스를 활성화하세요)",
+                disabled=True
+            )
+    
+    # 활성화된 기간의 가중치만 합계 확인
+    active_period_total = params["period_1d_weight"] + params["period_7d_weight"] + params["period_30d_weight"]
+    
+    if active_period_total > 0:
+        is_valid = abs(active_period_total - 1.0) <= 0.01
+        
+        if not is_valid:
+            # 에러 상태: 빨간 테두리와 텍스트
+            st.markdown(f"""
+                <div style='
+                    background-color: #262730;
+                    border: 1px solid #ff4444;
+                    border-radius: 4px;
+                    padding: 8px 12px;
+                    margin: 8px 0;
+                '>
+                    <div style='color: #ff4444; font-size: 0.875rem;'>
+                        기간별 가중치 합계: {active_period_total:.2f} (1.0이어야 함)
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+        else:
+            # 정상 상태: 테두리 없이 회색 텍스트만
+            st.markdown(f"""
+                <div style='
+                    background-color: #262730;
+                    border-radius: 4px;
+                    padding: 8px 12px;
+                    margin: 8px 0;
+                '>
+                    <div style='color: #6b7280; font-size: 0.875rem;'>
+                        기간별 가중치 합계: {active_period_total:.2f}
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
 
     return params
 
 
 def _volume_config_ui(params: Dict) -> Dict:
     """거래량 전략 설정 UI"""
-    st.write("**가중치 설정** (합계 1.0)")
+    st.markdown("##### 가중치 설정 (합계 1.0)")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -123,13 +258,40 @@ def _volume_config_ui(params: Dict) -> Dict:
         )
 
     total = params["amount_weight"] + params["surge_weight"]
-    if abs(total - 1.0) > 0.01:
-        st.warning(f"가중치 합계: {total:.2f}")
+    is_valid = abs(total - 1.0) <= 0.01
+    
+    if not is_valid:
+        # 에러 상태: 빨간 테두리와 텍스트
+        st.markdown(f"""
+            <div style='
+                background-color: #262730;
+                border: 1px solid #ff4444;
+                border-radius: 4px;
+                padding: 8px 12px;
+                margin: 8px 0;
+            '>
+                <div style='color: #ff4444; font-size: 0.875rem;'>
+                    가중치 합계: {total:.2f} (1.0이어야 함)
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
     else:
-        st.success(f"가중치 합계: {total:.2f}")
+        # 정상 상태: 테두리 없이 회색 텍스트만
+        st.markdown(f"""
+            <div style='
+                background-color: #262730;
+                border-radius: 4px;
+                padding: 8px 12px;
+                margin: 8px 0;
+            '>
+                <div style='color: #6b7280; font-size: 0.875rem;'>
+                    가중치 합계: {total:.2f}
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
 
     st.markdown("---")
-    st.write("**임계값 설정**")
+    st.markdown("##### 임계값 설정")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -152,7 +314,7 @@ def _volume_config_ui(params: Dict) -> Dict:
 
 def _technical_config_ui(params: Dict) -> Dict:
     """기술지표 전략 설정 UI"""
-    st.write("**가중치 설정** (합계 1.0)")
+    st.markdown("##### 가중치 설정 (합계 1.0)")
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -178,13 +340,40 @@ def _technical_config_ui(params: Dict) -> Dict:
         )
 
     total = params["rsi_weight"] + params["macd_weight"] + params["ma_weight"]
-    if abs(total - 1.0) > 0.01:
-        st.warning(f"가중치 합계: {total:.2f}")
+    is_valid = abs(total - 1.0) <= 0.01
+    
+    if not is_valid:
+        # 에러 상태: 빨간 테두리와 텍스트
+        st.markdown(f"""
+            <div style='
+                background-color: #262730;
+                border: 1px solid #ff4444;
+                border-radius: 4px;
+                padding: 8px 12px;
+                margin: 8px 0;
+            '>
+                <div style='color: #ff4444; font-size: 0.875rem;'>
+                    가중치 합계: {total:.2f} (1.0이어야 함)
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
     else:
-        st.success(f"가중치 합계: {total:.2f}")
+        # 정상 상태: 테두리 없이 회색 텍스트만
+        st.markdown(f"""
+            <div style='
+                background-color: #262730;
+                border-radius: 4px;
+                padding: 8px 12px;
+                margin: 8px 0;
+            '>
+                <div style='color: #6b7280; font-size: 0.875rem;'>
+                    가중치 합계: {total:.2f}
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
 
     st.markdown("---")
-    st.write("**지표 사용 설정**")
+    st.markdown("##### 지표 사용 설정")
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -198,7 +387,7 @@ def _technical_config_ui(params: Dict) -> Dict:
         st.error("최소 1개 지표를 선택해야 합니다.")
 
     st.markdown("---")
-    st.write("**상세 파라미터**")
+    st.markdown("##### 상세 파라미터")
 
     tab_rsi, tab_macd, tab_ma = st.tabs(["RSI", "MACD", "이동평균"])
 
@@ -257,7 +446,7 @@ def _technical_config_ui(params: Dict) -> Dict:
 
 def _hybrid_config_ui(params: Dict) -> Dict:
     """하이브리드 전략 설정 UI"""
-    st.write("**1단계: 전략 가중치 설정** (합계 1.0)")
+    st.markdown("##### 1단계: 전략 가중치 설정 (합계 1.0)")
 
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -268,10 +457,37 @@ def _hybrid_config_ui(params: Dict) -> Dict:
         technical_w = st.slider("기술지표", 0.0, 1.0, 0.30, 0.05, key="modal_hybrid_technical_w")
 
     total = momentum_w + volume_w + technical_w
-    if abs(total - 1.0) > 0.01:
-        st.warning(f"전략 가중치 합계: {total:.2f}")
+    is_valid = abs(total - 1.0) <= 0.01
+    
+    if not is_valid:
+        # 에러 상태: 빨간 테두리와 텍스트
+        st.markdown(f"""
+            <div style='
+                background-color: #262730;
+                border: 1px solid #ff4444;
+                border-radius: 4px;
+                padding: 8px 12px;
+                margin: 8px 0;
+            '>
+                <div style='color: #ff4444; font-size: 0.875rem;'>
+                    전략 가중치 합계: {total:.2f} (1.0이어야 함)
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
     else:
-        st.success(f"전략 가중치 합계: {total:.2f}")
+        # 정상 상태: 테두리 없이 회색 텍스트만
+        st.markdown(f"""
+            <div style='
+                background-color: #262730;
+                border-radius: 4px;
+                padding: 8px 12px;
+                margin: 8px 0;
+            '>
+                <div style='color: #6b7280; font-size: 0.875rem;'>
+                    전략 가중치 합계: {total:.2f}
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
 
     params["strategy_weights"] = {
         "momentum": momentum_w,
@@ -280,7 +496,7 @@ def _hybrid_config_ui(params: Dict) -> Dict:
     }
 
     st.markdown("---")
-    st.write("**2단계: 세부 전략 설정**")
+    st.markdown("##### 2단계: 세부 전략 설정")
 
     tab_m, tab_v, tab_t = st.tabs([
         f"모멘텀 ({momentum_w:.0%})",
@@ -290,7 +506,7 @@ def _hybrid_config_ui(params: Dict) -> Dict:
 
     with tab_m:
         # 모멘텀 가중치
-        st.write("**가중치**")
+        st.markdown("##### 가중치")
         col1, col2, col3 = st.columns(3)
         with col1:
             params["momentum_price_weight"] = st.slider("가격", 0.0, 1.0, 0.4, 0.05, key="modal_mom_price")
@@ -300,7 +516,7 @@ def _hybrid_config_ui(params: Dict) -> Dict:
             params["momentum_rsi_weight"] = st.slider("RSI", 0.0, 1.0, 0.3, 0.05, key="modal_mom_rsi")
 
         # 기간
-        st.write("**기간**")
+        st.markdown("##### 기간")
         col1, col2, col3 = st.columns(3)
         with col1:
             params["momentum_period_1d"] = st.checkbox("1일", True, key="modal_mom_1d")
@@ -308,17 +524,101 @@ def _hybrid_config_ui(params: Dict) -> Dict:
             params["momentum_period_7d"] = st.checkbox("7일", True, key="modal_mom_7d")
         with col3:
             params["momentum_period_30d"] = st.checkbox("30일", True, key="modal_mom_30d")
+        
+        # 기간별 가중치
+        st.markdown("##### 기간별 가중치 (활성화된 기간의 합계 1.0)")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if params.get("momentum_period_1d", True):
+                params["momentum_period_1d_weight"] = st.slider(
+                    "1일", 0.0, 1.0, 0.5, 0.05, 
+                    key="modal_mom_1d_w"
+                )
+            else:
+                params["momentum_period_1d_weight"] = 0.0
+                st.slider(
+                    "1일", 0.0, 1.0, 0.0, 0.05, 
+                    key="modal_mom_1d_w",
+                    disabled=True
+                )
+        
+        with col2:
+            if params.get("momentum_period_7d", True):
+                params["momentum_period_7d_weight"] = st.slider(
+                    "7일", 0.0, 1.0, 0.3, 0.05, 
+                    key="modal_mom_7d_w"
+                )
+            else:
+                params["momentum_period_7d_weight"] = 0.0
+                st.slider(
+                    "7일", 0.0, 1.0, 0.0, 0.05, 
+                    key="modal_mom_7d_w",
+                    disabled=True
+                )
+        
+        with col3:
+            if params.get("momentum_period_30d", True):
+                params["momentum_period_30d_weight"] = st.slider(
+                    "30일", 0.0, 1.0, 0.2, 0.05, 
+                    key="modal_mom_30d_w"
+                )
+            else:
+                params["momentum_period_30d_weight"] = 0.0
+                st.slider(
+                    "30일", 0.0, 1.0, 0.0, 0.05, 
+                    key="modal_mom_30d_w",
+                    disabled=True
+                )
+        
+        # 가중치 합계 검증
+        momentum_period_total = (
+            params["momentum_period_1d_weight"] + 
+            params["momentum_period_7d_weight"] + 
+            params["momentum_period_30d_weight"]
+        )
+        if momentum_period_total > 0:
+            is_valid = abs(momentum_period_total - 1.0) <= 0.01
+            
+            if not is_valid:
+                # 에러 상태: 빨간 테두리와 텍스트
+                st.markdown(f"""
+                    <div style='
+                        background-color: #262730;
+                        border: 1px solid #ff4444;
+                        border-radius: 4px;
+                        padding: 8px 12px;
+                        margin: 8px 0;
+                    '>
+                        <div style='color: #ff4444; font-size: 0.875rem;'>
+                            기간별 가중치 합계: {momentum_period_total:.2f} (1.0이어야 함)
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+            else:
+                # 정상 상태: 테두리 없이 회색 텍스트만
+                st.markdown(f"""
+                    <div style='
+                        background-color: #262730;
+                        border-radius: 4px;
+                        padding: 8px 12px;
+                        margin: 8px 0;
+                    '>
+                        <div style='color: #6b7280; font-size: 0.875rem;'>
+                            기간별 가중치 합계: {momentum_period_total:.2f}
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
 
     with tab_v:
         # 거래량 가중치
-        st.write("**가중치**")
+        st.markdown("##### 가중치")
         col1, col2 = st.columns(2)
         with col1:
             params["volume_amount_weight"] = st.slider("거래대금", 0.0, 1.0, 0.5, 0.05, key="modal_vol_amt")
         with col2:
             params["volume_surge_weight"] = st.slider("급증", 0.0, 1.0, 0.5, 0.05, key="modal_vol_surge")
 
-        st.write("**임계값**")
+        st.markdown("##### 임계값")
         col1, col2 = st.columns(2)
         with col1:
             params["volume_threshold"] = st.slider("배수", 1.0, 5.0, 1.5, 0.1, key="modal_vol_thresh")
@@ -327,7 +627,7 @@ def _hybrid_config_ui(params: Dict) -> Dict:
 
     with tab_t:
         # 기술지표 가중치
-        st.write("**가중치**")
+        st.markdown("##### 가중치")
         col1, col2, col3 = st.columns(3)
         with col1:
             params["technical_rsi_weight"] = st.slider("RSI", 0.0, 1.0, 0.3, 0.05, key="modal_tech_rsi_w")
@@ -336,7 +636,7 @@ def _hybrid_config_ui(params: Dict) -> Dict:
         with col3:
             params["technical_ma_weight"] = st.slider("MA", 0.0, 1.0, 0.3, 0.05, key="modal_tech_ma_w")
 
-        st.write("**사용 여부**")
+        st.markdown("##### 사용 여부")
         col1, col2, col3 = st.columns(3)
         with col1:
             params["technical_rsi"] = st.checkbox("RSI", True, key="modal_tech_rsi")
@@ -345,7 +645,7 @@ def _hybrid_config_ui(params: Dict) -> Dict:
         with col3:
             params["technical_ma"] = st.checkbox("MA", True, key="modal_tech_ma")
 
-        st.write("**상세 설정**")
+        st.markdown("##### 상세 설정")
         with st.expander("RSI 설정"):
             params["technical_rsi_period"] = st.number_input("기간", 5, 50, 14, 1, key="modal_tech_rsi_period")
         with st.expander("MACD 설정"):
@@ -375,3 +675,68 @@ def _hybrid_config_ui(params: Dict) -> Dict:
     )
 
     return params
+
+
+def _validate_strategy_params(strategy_type: str, params: Dict) -> Optional[str]:
+    """
+    전략 파라미터 검증
+    
+    Args:
+        strategy_type: 전략 타입
+        params: 검증할 파라미터
+    
+    Returns:
+        Optional[str]: 오류 메시지 (검증 성공 시 None)
+    """
+    if strategy_type == "momentum":
+        # 가중치 합계 검증
+        total = params.get("price_weight", 0) + params.get("volume_weight", 0) + params.get("rsi_weight", 0)
+        if abs(total - 1.0) > 0.01:
+            return f"가중치 합계가 1.0이 아닙니다: {total:.2f}"
+        
+        # 기간별 가중치 검증
+        period_total = (
+            params.get("period_1d_weight", 0) + 
+            params.get("period_7d_weight", 0) + 
+            params.get("period_30d_weight", 0)
+        )
+        if abs(period_total - 1.0) > 0.01:
+            return f"기간별 가중치 합계가 1.0이 아닙니다: {period_total:.2f}\n\n활성화된 기간의 가중치 합계를 1.0으로 맞춰주세요."
+        
+        # 최소 1개 기간 활성화 확인
+        if not any([params.get("period_1d"), params.get("period_7d"), params.get("period_30d")]):
+            return "최소 1개 기간을 선택해야 합니다."
+    
+    elif strategy_type == "volume":
+        # 가중치 합계 검증
+        total = params.get("amount_weight", 0) + params.get("surge_weight", 0)
+        if abs(total - 1.0) > 0.01:
+            return f"가중치 합계가 1.0이 아닙니다: {total:.2f}"
+    
+    elif strategy_type == "technical":
+        # 가중치 합계 검증
+        total = params.get("rsi_weight", 0) + params.get("macd_weight", 0) + params.get("ma_weight", 0)
+        if abs(total - 1.0) > 0.01:
+            return f"가중치 합계가 1.0이 아닙니다: {total:.2f}"
+        
+        # 최소 1개 지표 활성화 확인
+        if not any([params.get("use_rsi"), params.get("use_macd"), params.get("use_ma")]):
+            return "최소 1개 지표를 선택해야 합니다."
+    
+    elif strategy_type == "hybrid":
+        # 전략 가중치 합계 검증
+        strategy_weights = params.get("strategy_weights", {})
+        total = strategy_weights.get("momentum", 0) + strategy_weights.get("volume", 0) + strategy_weights.get("technical", 0)
+        if abs(total - 1.0) > 0.01:
+            return f"전략 가중치 합계가 1.0이 아닙니다: {total:.2f}"
+        
+        # 모멘텀 기간별 가중치 검증
+        momentum_period_total = (
+            params.get("momentum_period_1d_weight", 0) + 
+            params.get("momentum_period_7d_weight", 0) + 
+            params.get("momentum_period_30d_weight", 0)
+        )
+        if abs(momentum_period_total - 1.0) > 0.01:
+            return f"모멘텀 기간별 가중치 합계가 1.0이 아닙니다: {momentum_period_total:.2f}\n\n활성화된 기간의 가중치 합계를 1.0으로 맞춰주세요."
+    
+    return None

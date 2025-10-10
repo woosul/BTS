@@ -142,11 +142,17 @@ def _summarize_params(strategy_type: str, params: Dict) -> str:
         summary_html += "<div class='param-item'><div style='font-size: 0.7rem; color: #9ca3af; margin-bottom: 2px;'>가격 가중치</div><div style='font-size: 0.85rem; color: #ffffff;'>" + str(int(params.get('price_weight', 0) * 100)) + "%</div></div>"
         summary_html += "<div class='param-item'><div style='font-size: 0.7rem; color: #9ca3af; margin-bottom: 2px;'>거래량 가중치</div><div style='font-size: 0.85rem; color: #ffffff;'>" + str(int(params.get('volume_weight', 0) * 100)) + "%</div></div>"
         summary_html += "<div class='param-item'><div style='font-size: 0.7rem; color: #9ca3af; margin-bottom: 2px;'>RSI 가중치</div><div style='font-size: 0.85rem; color: #ffffff;'>" + str(int(params.get('rsi_weight', 0) * 100)) + "%</div></div>"
-        # 기간 정보
+        # 기간 정보 (가중치 포함)
         periods = []
-        if params.get("period_1d"): periods.append("1일")
-        if params.get("period_7d"): periods.append("7일")
-        if params.get("period_30d"): periods.append("30일")
+        if params.get("period_1d"): 
+            weight = int(params.get('period_1d_weight', 0) * 100)
+            periods.append(f"1일({weight}%)")
+        if params.get("period_7d"): 
+            weight = int(params.get('period_7d_weight', 0) * 100)
+            periods.append(f"7일({weight}%)")
+        if params.get("period_30d"): 
+            weight = int(params.get('period_30d_weight', 0) * 100)
+            periods.append(f"30일({weight}%)")
         summary_html += "<div class='param-item'><div style='font-size: 0.7rem; color: #9ca3af; margin-bottom: 2px;'>분석 기간</div><div style='font-size: 0.85rem; color: #ffffff;'>" + (', '.join(periods) if periods else '없음') + "</div></div>"
 
     elif strategy_type == "volume":

@@ -185,12 +185,12 @@ def main():
         if ai_provider == "claude":
             st.caption(f"모델 : {settings.claude_model}")
             st.caption(f"Fallback : {settings.claude_fallback_model}")
-            api_key_status = "✓" if settings.claude_api_key else "✗"
+            api_key_status = "설정됨" if settings.claude_api_key else "미설정"
             st.caption(f"API 키 : {api_key_status}")
         else:
             st.caption(f"모델 : {settings.openai_model}")
             st.caption(f"Fallback : {settings.openai_fallback_model}")
-            api_key_status = "✓" if settings.openai_api_key else "✗"
+            api_key_status = "설정됨" if settings.openai_api_key else "미설정"
             st.caption(f"API 키 : {api_key_status}")
 
         st.caption(f"캐시 : {'ON' if settings.ai_cache_enabled else 'OFF'} ({settings.ai_cache_ttl_minutes}분)")

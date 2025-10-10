@@ -106,8 +106,8 @@ def render_ai_evaluation_card(
                 {reasoning}
             </div>
         </div>
-        {"<div style='margin-bottom: 8px; background-color: #00CCAC20; border-left: 3px solid #00CCAC; padding: 12px; border-radius: 4px;'><div style='font-size: 0.75rem; color: #00CCAC; margin-bottom: 4px; font-weight: 600;'>⚠️ 주의사항</div><div style='font-size: 0.85rem; color: #FAFAFA; line-height: 1.4;'>" + warnings + "</div></div>" if warnings else ""}
-        {"<div style='font-size: 0.7rem; color: #9ca3af; margin-top: 8px;'>🔄 Fallback 모델 사용: " + model_used + "</div>" if fallback_used else ""}
+        {"<div style='margin-bottom: 8px; background-color: #1e1e1e; border: 1px solid #ffa500; border-radius: 4px; padding: 12px;'><div style='font-size: 0.75rem; color: #ffa500; margin-bottom: 4px; font-weight: 600;'>주의사항</div><div style='font-size: 0.85rem; color: #FAFAFA; line-height: 1.4;'>" + warnings + "</div></div>" if warnings else ""}
+        {"<div style='font-size: 0.7rem; color: #9ca3af; margin-top: 8px;'>Fallback 모델 사용: " + model_used + "</div>" if fallback_used else ""}
     </div>
     """, unsafe_allow_html=True)
 

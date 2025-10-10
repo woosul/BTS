@@ -24,6 +24,9 @@ class MomentumScreening(BaseScreeningStrategy):
         - period_1d: 1일 모멘텀 사용 여부 (기본: True)
         - period_7d: 7일 모멘텀 사용 여부 (기본: True)
         - period_30d: 30일 모멘텀 사용 여부 (기본: True)
+        - period_1d_weight: 1일 모멘텀 가중치 (기본: 0.5)
+        - period_7d_weight: 7일 모멘텀 가중치 (기본: 0.3)
+        - period_30d_weight: 30일 모멘텀 가중치 (기본: 0.2)
     """
 
     def __init__(self, parameters: Dict):
@@ -38,6 +41,11 @@ class MomentumScreening(BaseScreeningStrategy):
         self.period_1d = bool(parameters.get("period_1d", True))
         self.period_7d = bool(parameters.get("period_7d", True))
         self.period_30d = bool(parameters.get("period_30d", True))
+        
+        # 기간별 가중치 설정
+        self.period_1d_weight = float(parameters.get("period_1d_weight", 0.5))
+        self.period_7d_weight = float(parameters.get("period_7d_weight", 0.3))
+        self.period_30d_weight = float(parameters.get("period_30d_weight", 0.2))
 
     def calculate_score(self, symbol: str, market_data: Dict) -> SymbolScore:
         """
@@ -50,34 +58,55 @@ class MomentumScreening(BaseScreeningStrategy):
         Returns:
             SymbolScore: 종목 점수
         """
-        # 기간별 가격 변동률 수집
-        price_scores = []
+        # 기간별 가격 변동률 수집 (가중 평균)
+        price_weighted_sum = 0.0
+        price_total_weight = 0.0
+        
         if self.period_1d:
             price_change_1d = market_data.get("price_change_24h", 0.0)
-            price_scores.append(self._normalize_score(price_change_1d, -10, 30))
+            score_1d = self._normalize_score(price_change_1d, -10, 30)
+            price_weighted_sum += score_1d * self.period_1d_weight
+            price_total_weight += self.period_1d_weight
+            
         if self.period_7d:
             price_change_7d = market_data.get("price_change_7d", 0.0)
-            price_scores.append(self._normalize_score(price_change_7d, -20, 50))
+            score_7d = self._normalize_score(price_change_7d, -20, 50)
+            price_weighted_sum += score_7d * self.period_7d_weight
+            price_total_weight += self.period_7d_weight
+            
         if self.period_30d:
             price_change_30d = market_data.get("price_change_30d", 0.0)
-            price_scores.append(self._normalize_score(price_change_30d, -30, 100))
+            score_30d = self._normalize_score(price_change_30d, -30, 100)
+            price_weighted_sum += score_30d * self.period_30d_weight
+            price_total_weight += self.period_30d_weight
 
-        # 평균 가격 점수
-        price_score = sum(price_scores) / len(price_scores) if price_scores else 0.0
+        # 가중 평균 가격 점수
+        price_score = price_weighted_sum / price_total_weight if price_total_weight > 0 else 0.0
 
-        # 거래량 변동률 점수 (활성 기간 중 최대값 활용)
-        volume_scores = []
+        # 거래량 변동률 점수 (가중 평균으로 변경)
+        volume_weighted_sum = 0.0
+        volume_total_weight = 0.0
+        
         if self.period_1d:
             volume_change_1d = market_data.get("volume_change_24h", 0.0)
-            volume_scores.append(self._normalize_score(volume_change_1d, 0, 200))
+            score_1d = self._normalize_score(volume_change_1d, 0, 200)
+            volume_weighted_sum += score_1d * self.period_1d_weight
+            volume_total_weight += self.period_1d_weight
+            
         if self.period_7d:
             volume_change_7d = market_data.get("volume_change_7d", 0.0)
-            volume_scores.append(self._normalize_score(volume_change_7d, 0, 300))
+            score_7d = self._normalize_score(volume_change_7d, 0, 300)
+            volume_weighted_sum += score_7d * self.period_7d_weight
+            volume_total_weight += self.period_7d_weight
+            
         if self.period_30d:
             volume_change_30d = market_data.get("volume_change_30d", 0.0)
-            volume_scores.append(self._normalize_score(volume_change_30d, 0, 500))
+            score_30d = self._normalize_score(volume_change_30d, 0, 500)
+            volume_weighted_sum += score_30d * self.period_30d_weight
+            volume_total_weight += self.period_30d_weight
 
-        volume_score = max(volume_scores) if volume_scores else 0.0
+        # 가중 평균 거래량 점수
+        volume_score = volume_weighted_sum / volume_total_weight if volume_total_weight > 0 else 0.0
 
         # RSI 모멘텀 점수 (50 기준, 높을수록 상승 모멘텀)
         rsi = market_data.get("indicators", {}).get("rsi", 50)

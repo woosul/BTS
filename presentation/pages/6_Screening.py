@@ -67,11 +67,20 @@ def main():
         from application.services.filtering_service import FilteringService
         filtering_service = FilteringService(db, screening_service.exchange)
         
-        # 필터 프로파일 선택
-        use_filter = st.checkbox("사전 필터링 사용", value=False, help="스크리닝 전 종목을 필터링합니다")
+        # 라디오 버튼: 종목 필터 vs 저장 종목 (같은 줄에 배치)
+        filter_mode = st.radio(
+            "필터 모드",
+            options=["종목 필터", "저장 종목"],
+            horizontal=True,
+            help="스크리닝 대상 종목을 선택합니다",
+            label_visibility="collapsed"
+        )
         
         selected_filter_profile = None
-        if use_filter:
+        saved_symbols_data = None
+        
+        if filter_mode == "종목 필터":
+            # 필터 프로파일 선택
             filter_profiles = filtering_service.get_active_profiles()
             
             if filter_profiles:
@@ -88,20 +97,63 @@ def main():
                     )
                     selected_filter_profile = next(p for p in market_profiles if p.name == selected_name)
                     
-                    # 필터 정보 표시
+                    # 필터 조건 보기
                     with st.expander("필터 조건 보기"):
                         cond = selected_filter_profile.conditions
+                        
+                        # 조건을 리스트로 수집 (제목과 값을 분리하여 정렬)
+                        conditions = []
                         if cond.min_trading_value:
-                            st.write(f"📊 거래대금 ≥ {cond.min_trading_value/1e9:.1f}B")
+                            conditions.append(("거래대금", f"≥ {cond.min_trading_value/1e9:.1f}B"))
+                        if cond.min_market_cap or cond.max_market_cap:
+                            min_cap = f"{cond.min_market_cap/1e9:.1f}B" if cond.min_market_cap else "없음"
+                            max_cap = f"{cond.max_market_cap/1e9:.1f}B" if cond.max_market_cap else "없음"
+                            conditions.append(("시가총액", f"{min_cap} ~ {max_cap}"))
+                        if cond.min_listing_days:
+                            conditions.append(("상장기간", f"≥ {cond.min_listing_days}일"))
                         if cond.min_price or cond.max_price:
-                            st.write(f"💰 가격범위: {cond.min_price or 0}~{cond.max_price or '∞'}")
+                            min_p = f"{cond.min_price:,}원" if cond.min_price else "없음"
+                            max_p = f"{cond.max_price:,}원" if cond.max_price else "없음"
+                            conditions.append(("가격범위", f"{min_p} ~ {max_p}"))
                         if cond.min_volatility or cond.max_volatility:
-                            st.write(f"📈 변동성: {cond.min_volatility or 0}~{cond.max_volatility or '∞'}%")
+                            conditions.append(("변동성", f"{cond.min_volatility or 0}% ~ {cond.max_volatility or '∞'}%"))
+                        if cond.max_spread:
+                            conditions.append(("스프레드", f"≤ {cond.max_spread}%"))
+                        
+                        # HTML 테이블로 출력 (bullet, 정렬, 간격 적용)
+                        html_rows = []
+                        for title, value in conditions:
+                            html_rows.append(
+                                f"<tr style='border-bottom: 1px solid #333;'>"
+                                f"<td style='padding: 0; vertical-align: top; width: 10px; border: none;'>•</td>"
+                                f"<td style='padding: 0 1.5rem 0 0.3rem; color: #555; white-space: nowrap; vertical-align: top; border: none;'>{title}</td>"
+                                f"<td style='padding: 0; vertical-align: top; border: none;'>{value}</td>"
+                                f"</tr>"
+                            )
+                        
+                        st.markdown(
+                            f"<div style='margin-top: 0.5rem;'>"
+                            f"<table style='line-height: 1.8; border-collapse: collapse; width: 100%; border: none;'>"
+                            f"{''.join(html_rows)}"
+                            f"</table>"
+                            f"</div>",
+                            unsafe_allow_html=True
+                        )
                 else:
                     st.info(f"{temp_market} 시장용 활성 프로파일이 없습니다.")
                     st.markdown("[필터링 페이지에서 생성하기](/4_Filtering)")
             else:
                 st.info("활성화된 필터 프로파일이 없습니다.")
+                st.markdown("[필터링 페이지로 이동](/4_Filtering)")
+        
+        else:  # "저장 종목" 선택
+            # 저장된 필터링 결과 로드
+            saved_symbols_data = filtering_service.get_saved_symbols()
+            if saved_symbols_data:
+                saved_count = len(saved_symbols_data)
+                st.info(f"- {saved_count}개의 저장된 종목 로드됨")
+            else:
+                st.warning("저장된 종목이 없습니다. Filtering 페이지에서 결과를 저장해주세요.")
                 st.markdown("[필터링 페이지로 이동](/4_Filtering)")
         
         st.markdown("---")
@@ -230,7 +282,10 @@ def main():
                     "rsi_weight": strategy_params.get("momentum_rsi_weight", 0.3),
                     "period_1d": strategy_params.get("momentum_period_1d", True),
                     "period_7d": strategy_params.get("momentum_period_7d", True),
-                    "period_30d": strategy_params.get("momentum_period_30d", True)
+                    "period_30d": strategy_params.get("momentum_period_30d", True),
+                    "period_1d_weight": strategy_params.get("momentum_period_1d_weight", 0.5),
+                    "period_7d_weight": strategy_params.get("momentum_period_7d_weight", 0.3),
+                    "period_30d_weight": strategy_params.get("momentum_period_30d_weight", 0.2)
                 }
                 render_strategy_card(
                     strategy_name=f"모멘텀 기반 | {weights.get('momentum', 0):.0%}",
@@ -316,7 +371,10 @@ def main():
                     "rsi_weight": 0.3,
                     "period_1d": True,
                     "period_7d": True,
-                    "period_30d": True
+                    "period_30d": True,
+                    "period_1d_weight": 0.5,
+                    "period_7d_weight": 0.3,
+                    "period_30d_weight": 0.2
                 }
             elif strategy_type == "volume":
                 strategy_params = {
@@ -354,6 +412,9 @@ def main():
                     "momentum_period_1d": True,
                     "momentum_period_7d": True,
                     "momentum_period_30d": True,
+                    "momentum_period_1d_weight": 0.5,
+                    "momentum_period_7d_weight": 0.3,
+                    "momentum_period_30d_weight": 0.2,
                     "volume_amount_weight": 0.5,
                     "volume_surge_weight": 0.5,
                     "volume_threshold": 1.5,
@@ -372,23 +433,32 @@ def main():
                     "technical_ma_long": 60
                 }
 
-    # 스크리닝 실행 시 결과 업데이트 (제목 렌더링 전 처리)
+    # 페이지 타이틀 - 다른 페이지와 동일한 스타일 (최상단에 배치)
+    st.title("종목선정")
+
+    st.markdown("---")
+    
+    # 스크리닝 실행 시 결과 업데이트 (타이틀 아래에서 처리)
     if run_screening:
         # 디폴트 값으로 실행한 경우, 사이드바 전략 설정도 업데이트 (rerun 없이)
         strategy_key = f"{strategy_type}_strategy_config"
         if strategy_key not in st.session_state:
             # 디폴트 값을 사이드바 설정으로도 저장
             st.session_state[strategy_key] = strategy_params
-
+        
+        # Streamlit 기본 스피너 사용 (with 구문으로 자동 관리)
         with st.spinner("스크리닝 실행 중..."):
             try:
                 # 필터 적용 (선택된 경우)
                 target_symbols = None
                 filter_stats = []
                 
-                if use_filter and selected_filter_profile:
+                if filter_mode == "종목 필터" and selected_filter_profile:
+                    # 필터 프로파일을 이용한 필터링
                     # 시장의 모든 종목 가져오기
-                    all_market_symbols = screening_service.exchange.get_market_symbols(market)
+                    from infrastructure.exchanges.upbit_client import UpbitClient
+                    temp_exchange = UpbitClient()
+                    all_market_symbols = temp_exchange.get_market_symbols(market)
                     
                     # 필터 적용
                     filtered_symbols, filter_stats = filtering_service.apply_filters(
@@ -400,13 +470,18 @@ def main():
                     target_symbols = filtered_symbols
                     logger.info(f"필터 적용: {len(all_market_symbols)} → {len(filtered_symbols)}개 종목")
                 
+                elif filter_mode == "저장 종목" and saved_symbols_data:
+                    # 저장된 종목을 사용
+                    target_symbols = [s['symbol'] for s in saved_symbols_data]
+                    logger.info(f"저장된 종목 사용: {len(target_symbols)}개")
+                
                 # 스크리닝 실행 (필터링된 종목 또는 전체 종목 대상)
                 results = screening_service.screen_symbols(
                     market=market,
                     strategy_type=strategy_type,
                     strategy_params=strategy_params,
                     top_n=top_n,
-                    symbols=target_symbols  # 필터링된 종목만 전달
+                    symbols=target_symbols  # 필터링된 종목 전달
                 )
 
                 # 결과 저장
@@ -416,6 +491,7 @@ def main():
                 st.session_state.screening_params = strategy_params
                 st.session_state.screening_time = datetime.now()
                 st.session_state.screening_filter_stats = filter_stats  # 필터 통계 저장
+                
                 # st.success(f"스크리닝 완료: {len(results)}개 종목 선정")
 
             except Exception as e:
@@ -424,13 +500,9 @@ def main():
                 import traceback
                 st.text(traceback.format_exc())
 
-    # 페이지 타이틀 - 다른 페이지와 동일한 스타일 (최상단에 배치)
-    st.title("종목선정")
-    
-    st.markdown("---")
-    
     # 메타카드 표시 (fixed 위치, 레이아웃 영향 없음)
     results = st.session_state.get('screening_results', [])
+    logger.info(f"스크리닝 결과 로드: {len(results)}개")
     if results and 'screening_market' in st.session_state:
         strategy_name = {
             "momentum": "모멘텀",
@@ -440,52 +512,52 @@ def main():
         }.get(st.session_state.screening_strategy, "Unknown")
 
         st.markdown(f"""
-        <style>
-        .meta-cards {{
-            position: fixed;
-            top: 4.5rem;
-            right: 5rem;
-            display: flex;
-            gap: 8px;
-            z-index: 1000;
-        }}
-        .meta-card-small {{
-            background-color: #1E1E1E;
-            border-radius: 4px;
-            padding: 8px 16px;
-            border: 1px solid #3d3d4a;
-            font-size: 0.875rem;
-            white-space: nowrap;
-        }}
-        .meta-label {{
-            color: #9ca3af;
-            margin-right: 4px;
-        }}
-        .meta-value {{
-            color: #FAFAFA;
-            font-weight: 600;
-        }}
-        </style>
-        <div class="meta-cards">
-            <div class="meta-card-small">
-                <span class="meta-label">시장</span>
-                <span class="meta-value">{st.session_state.screening_market}</span>
-            </div>
-            <div class="meta-card-small">
-                <span class="meta-label">전략</span>
-                <span class="meta-value">{strategy_name}</span>
-            </div>
-            <div class="meta-card-small">
-                <span class="meta-label">실행</span>
-                <span class="meta-value">{st.session_state.screening_time.strftime('%H:%M:%S')}</span>
-            </div>
+    <style>
+    .meta-cards {{
+        position: fixed;
+        top: 4.5rem;
+        right: 5rem;
+        display: flex;
+        gap: 8px;
+        z-index: 1000;
+    }}
+    .meta-card-small {{
+        background-color: #1E1E1E;
+        border-radius: 4px;
+        padding: 8px 16px;
+        border: 1px solid #3d3d4a;
+        font-size: 0.875rem;
+        white-space: nowrap;
+    }}
+    .meta-label {{
+        color: #9ca3af;
+        margin-right: 4px;
+    }}
+    .meta-value {{
+        color: #FAFAFA;
+        font-weight: 600;
+    }}
+    </style>
+    <div class="meta-cards">
+        <div class="meta-card-small">
+            <span class="meta-label">시장</span>
+            <span class="meta-value">{st.session_state.screening_market}</span>
         </div>
+        <div class="meta-card-small">
+            <span class="meta-label">전략</span>
+            <span class="meta-value">{strategy_name}</span>
+        </div>
+        <div class="meta-card-small">
+            <span class="meta-label">실행</span>
+            <span class="meta-value">{st.session_state.screening_time.strftime('%H:%M:%S')}</span>
+        </div>
+    </div>
         """, unsafe_allow_html=True)
-    
+
     # 필터 통계 표시 (필터가 적용된 경우)
     filter_stats = st.session_state.get('screening_filter_stats', [])
     if filter_stats:
-        with st.expander("🔍 필터링 통계", expanded=False):
+        with st.expander("필터링 통계", expanded=False):
             stats_data = []
             for stat in filter_stats:
                 stats_data.append({
@@ -498,18 +570,20 @@ def main():
             
             if stats_data:
                 st.dataframe(stats_data, use_container_width=True, hide_index=True)
-    
+
     st.markdown("<div style='margin: 0.8rem 0;'></div>", unsafe_allow_html=True)
 
     # if not results and len(st.session_state.get('pinned_symbols', set())) == 0:
     #    st.info("스크리닝을 실행하거나 지정 종목을 추가하여 매수 분석을 시작하세요.")
 
     # 결과 테이블 타이틀과 버튼을 한 줄에
-    # DB 저장된 지정종목 수와 스크리닝 종목 수 계산
-    saved_pinned = st.session_state.get('pinned_symbols', set())
-    saved_count = len(saved_pinned)
-    screening_count = len(results) - len([r for r in results if r.symbol in saved_pinned]) if results else 0
-    title_text = f"선정 종목 | {saved_count}+{screening_count}" if saved_count > 0 or screening_count > 0 else "선정 종목"
+    # DB에 저장된 지정종목 수와 스크리닝 신규 종목 수 계산
+    # 예: 지정종목 5개, 스크리닝 20개 중 2개가 지정종목과 중복 → "5+18" 표시
+    saved_pinned_symbols = st.session_state.get('pinned_symbols', set())
+    pinned_count = len(saved_pinned_symbols)
+    # 스크리닝 결과 중 지정종목이 아닌 신규 종목만 카운트 (중복 제외)
+    new_screening_count = len([r for r in results if r.symbol not in saved_pinned_symbols]) if results else 0
+    title_text = f"선정 종목 | {pinned_count}+{new_screening_count}" if pinned_count > 0 or new_screening_count > 0 else "선정 종목"
 
     col_title, col_spacer, col_btn1, col_btn2, col_btn3 = st.columns([0.4, 0.15, 0.15, 0.15, 0.15])
     with col_title:
@@ -705,6 +779,9 @@ def main():
 
     # 지정 종목을 상단에, 일반 종목을 하단에 배치
     data = pinned_data + unpinned_data
+    
+    # 디버그: 데이터 확인
+    logger.info(f"데이터 생성 완료: pinned={len(pinned_data)}, unpinned={len(unpinned_data)}, total={len(data)}")
 
     # 데이터가 있을 때만 DataFrame 처리
     if data:
@@ -1059,7 +1136,7 @@ def main():
     st.markdown("<hr style='margin: 1rem 0;'>", unsafe_allow_html=True)
 
     # 전략 설명 가이드 (expander)
-    with st.expander("📘 전략 설명 가이드", expanded=False):
+    with st.expander("전략 설명 가이드", expanded=False):
         st.markdown("""
 ### 모멘텀 기반 전략
 가격과 거래량의 상승세를 기반으로 종목을 선정합니다.

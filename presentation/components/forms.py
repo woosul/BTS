@@ -279,7 +279,19 @@ def render_strategy_creation_form(strategy_type: str = "rsi") -> Optional[Strate
 
             total_weight = macd_w + stoch_w + rsi_w + vol_w
             if abs(total_weight - 1.0) > 0.01:
-                st.warning(f"⚠️ 가중치 합계가 1이 아닙니다: {total_weight:.2f}")
+                st.markdown(f"""
+                    <div style='
+                        background-color: #1e1e1e;
+                        border: 1px solid #ffa500;
+                        border-radius: 4px;
+                        padding: 8px 12px;
+                        margin: 8px 0;
+                    '>
+                        <div style='color: #ffa500; font-size: 0.85rem;'>
+                            가중치 합계가 1이 아닙니다: {total_weight:.2f}
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
 
             parameters["strategy_weights"] = {
                 "macd": macd_w,
@@ -389,7 +401,19 @@ def render_strategy_creation_form(strategy_type: str = "rsi") -> Optional[Strate
 
             total_weight = fixed_w + trail_w + rsi_w + time_w
             if abs(total_weight - 1.0) > 0.01:
-                st.warning(f"⚠️ 가중치 합계가 1이 아닙니다: {total_weight:.2f}")
+                st.markdown(f"""
+                    <div style='
+                        background-color: #1e1e1e;
+                        border: 1px solid #ffa500;
+                        border-radius: 4px;
+                        padding: 8px 12px;
+                        margin: 8px 0;
+                    '>
+                        <div style='color: #ffa500; font-size: 0.85rem;'>
+                            가중치 합계가 1이 아닙니다: {total_weight:.2f}
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
 
             parameters["strategy_weights"] = {
                 "fixed_target": fixed_w,
