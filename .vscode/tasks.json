@@ -4,7 +4,7 @@
         {
             "label": "Streamlit 실행",
             "type": "shell",
-            "command": "source .venv/bin/activate && streamlit run presentation/Home.py",
+            "command": "source .venv/bin/activate && streamlit run presentation/streamlit_app.py",
             "problemMatcher": [],
             "presentation": {
                 "reveal": "always",
@@ -19,7 +19,7 @@
         {
             "label": "Streamlit 백그라운드 실행",
             "type": "shell",
-            "command": "source .venv/bin/activate && streamlit run presentation/Home.py",
+            "command": "source .venv/bin/activate && streamlit run presentation/streamlit_app.py",
             "problemMatcher": [],
             "isBackground": true,
             "presentation": {
@@ -49,6 +49,28 @@
             "label": "MCP 브라우저 실행",
             "type": "shell",
             "command": "open http://localhost:8501",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "never",
+                "panel": "shared",
+                "focus": false
+            }
+        },
+        {
+            "label": "Chrome 큰 창으로 실행 (1700x1700)",
+            "type": "shell",
+            "command": "open -na 'Google Chrome' --args --new-window --window-size=1700,1700 --window-position=100,100 'http://localhost:8501'",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "never",
+                "panel": "shared",
+                "focus": false
+            }
+        },
+        {
+            "label": "Chrome 디버그 모드 실행 (Puppeteer 연결용)",
+            "type": "shell",
+            "command": "open -na 'Google Chrome' --args --remote-debugging-port=9222 --new-window --window-size=1700,1700 'http://localhost:8501'",
             "problemMatcher": [],
             "presentation": {
                 "reveal": "never",
