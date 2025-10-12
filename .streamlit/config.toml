@@ -8,6 +8,10 @@ gatherUsageStats = false
 serverAddress = "localhost"
 serverPort = 8501
 
+[client]
+# Disable toolbar mode
+toolbarMode = "minimal"
+
 [theme]
 # Use dark theme base
 base = "dark"

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 BTS - Bitcoin Auto Trading System
 Streamlit 메인 애플리케이션 (st.navigation 방식)
@@ -25,12 +26,21 @@ st.set_page_config(
 )
 
 # 로고 설정
-logo_path = str(project_root / "resource" / "image" / "peaknine_logo_01.svg")
-icon_path = str(project_root / "resource" / "image" / "peaknine_02.png")
-st.logo(
-    image=logo_path,
-    icon_image=icon_path
-)
+# presentation 디렉토리에서 실행되므로 상위 디렉토리의 resource 폴더 참조
+try:
+    import os
+    logo_svg = "../resource/image/peaknine_logo_01.svg"
+    logo_png = "../resource/image/peaknine_02.png"
+
+    if os.path.exists(logo_svg) and os.path.exists(logo_png):
+        st.logo(
+            image=logo_svg,
+            icon_image=logo_png
+        )
+    else:
+        logger.warning(f"로고 파일을 찾을 수 없습니다: {logo_svg}")
+except Exception as e:
+    logger.warning(f"로고 설정 실패: {e}")
 
 # 전역 스타일
 st.markdown("""
