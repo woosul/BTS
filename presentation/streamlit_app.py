@@ -26,11 +26,14 @@ st.set_page_config(
 )
 
 # 로고 설정
-# presentation 디렉토리에서 실행되므로 상위 디렉토리의 resource 폴더 참조
+# 프로젝트 루트에서 실행되므로 resource 폴더 참조
 try:
     import os
-    logo_svg = "../resource/image/peaknine_logo_01.svg"
-    logo_png = "../resource/image/peaknine_02.png"
+    from pathlib import Path
+
+    # 프로젝트 루트 기준 경로
+    logo_svg = "resource/image/peaknine_logo_01.svg"
+    logo_png = "resource/image/peaknine_02.png"
 
     if os.path.exists(logo_svg) and os.path.exists(logo_png):
         st.logo(
@@ -50,18 +53,9 @@ st.markdown("""
         border-radius: 0 !important;
     }
     
-    /* 사이드바 넓이 설정 */
-    [data-testid="stSidebar"] {
-        min-width: 400px !important;
-        max-width: 400px !important;
-    }
-    
-    /* 사이드바가 접혔을 때 메인 컨텐츠 영역 조정 */
-    [data-testid="stSidebar"][aria-expanded="true"] {
-        min-width: 400px !important;
-        max-width: 400px !important;
-    }
-    
+    /* 사이드바 width 설정 제거 - Streamlit 기본 동작 사용 */
+    /* 필요시 나중에 재적용 */
+
     /* 사이드바 네비게이션 메뉴 스타일 */
     /* 기본 메뉴 아이템 */
     [data-testid="stSidebarNav"] li a {

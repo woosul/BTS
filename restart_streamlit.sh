@@ -1,11 +1,15 @@
 #!/bin/bash
 # This script finds and kills any running Streamlit process for this project
-# and then restarts it.
+# and then restarts it in SPA mode (st.navigation).
+
+# Get the directory where this script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$SCRIPT_DIR"
 
 # Find and kill the old Streamlit process
 echo "Searching for running Streamlit process..."
-# The grep pattern is adjusted to match the new way of running from within the presentation directory
-PID=$(ps aux | grep "[s]treamlit run streamlit_app.py" | grep -v grep | awk '{print $2}')
+# Match both old multi-page and new SPA patterns
+PID=$(ps aux | grep "[s]treamlit run.*streamlit_app.py" | grep -v grep | awk '{print $2}')
 
 if [ -n "$PID" ]; then
   echo "Found Streamlit process with PID: $PID. Terminating..."
@@ -24,7 +28,14 @@ fi
 export LANG=ko_KR.UTF-8
 export LC_ALL=ko_KR.UTF-8
 
-# Start the new Streamlit process from within the presentation directory
-echo "Starting new Streamlit process..."
-cd presentation
-../.venv/bin/streamlit run streamlit_app.py > streamlit.log 2>&1 &
+# Check if virtual environment exists
+if [ ! -d ".venv" ]; then
+    echo "Error: Virtual environment not found (.venv directory missing)"
+    exit 1
+fi
+
+# Start the new Streamlit process in SPA mode using venv python directly
+echo "Starting new Streamlit process (SPA mode)..."
+STREAMLIT_EMAIL="" .venv/bin/python -m streamlit run presentation/streamlit_app.py --server.headless=true > streamlit.log 2>&1 &
+
+echo "Streamlit started. Check http://localhost:8501"

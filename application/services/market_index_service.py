@@ -43,14 +43,52 @@ class MarketIndexService:
         """
         업비트 종합지수 데이터 가져오기
 
-        Upbit API가 공개되지 않아 웹 스크래핑 사용
+        다중 fallback 전략으로 안정성 확보:
+        1. CSS 셀렉터 방식 (빠름)
+        2. 텍스트 기반 파싱 (안정적)
+        3. 정규식 기반 파싱 (최후)
         """
+        logger.info("업비트 지수 데이터 가져오기 시작 (다중 fallback)")
+
+        # Fallback 1: CSS 셀렉터 방식
         try:
-            logger.info("업비트 지수 웹 스크래핑으로 데이터 가져오기")
-            return self._scrape_upbit_indices()
+            result = self._scrape_with_css_selector()
+            if self._is_valid_result(result):
+                logger.info("✓ Fallback 1 성공: CSS 셀렉터 방식")
+                return result
         except Exception as e:
-            logger.error(f"업비트 지수 웹 스크래핑 실패: {e}")
-            return self._get_empty_upbit_indices()
+            logger.warning(f"✗ Fallback 1 실패 (CSS 셀렉터): {e}")
+
+        # Fallback 2: 텍스트 기반 파싱
+        try:
+            result = self._scrape_with_text_parsing()
+            if self._is_valid_result(result):
+                logger.info("✓ Fallback 2 성공: 텍스트 기반 파싱")
+                return result
+        except Exception as e:
+            logger.warning(f"✗ Fallback 2 실패 (텍스트 파싱): {e}")
+
+        # Fallback 3: 정규식 기반 파싱
+        try:
+            result = self._scrape_with_regex()
+            if self._is_valid_result(result):
+                logger.info("✓ Fallback 3 성공: 정규식 기반 파싱")
+                return result
+        except Exception as e:
+            logger.warning(f"✗ Fallback 3 실패 (정규식): {e}")
+
+        logger.error("모든 fallback 방법 실패 - 빈 데이터 반환")
+        return self._get_empty_upbit_indices()
+
+    def _is_valid_result(self, result: Dict[str, any]) -> bool:
+        """결과가 유효한 데이터인지 확인"""
+        if not result or not isinstance(result, dict):
+            return False
+        # 적어도 하나의 지수가 0보다 큰지 확인
+        return any(
+            result.get(key, {}).get('value', 0) > 0
+            for key in ['ubci', 'ubmi', 'ub10', 'ub30']
+        )
 
     def _fetch_and_parse_upbit_indices(self) -> Dict[str, any]:
         """
@@ -106,17 +144,26 @@ class MarketIndexService:
 
         return result
 
-    def _scrape_upbit_indices(self) -> Dict[str, any]:
+    def _scrape_with_css_selector(self) -> Dict[str, any]:
         """
-        Playwright를 사용하여 동적으로 렌더링된 페이지에서 업비트 지수 데이터를 스크래핑합니다.
+        Fallback 1: CSS 셀렉터 방식으로 스크래핑
+        - 빠르지만 CSS 클래스 변경에 취약
+        - 짧은 타임아웃(10초)
         """
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
             try:
-                page.goto(self.UPBIT_TRENDS_URL, timeout=60000)
-                # Wait for index values to load (look for css-bbw3a7 class which contains values)
-                page.wait_for_selector('.css-bbw3a7', timeout=30000)
+                page.goto(self.UPBIT_TRENDS_URL, timeout=30000)
+                # 여러 가능한 CSS 셀렉터 시도
+                selectors = ['.css-bbw3a7', '[data-testid="index-value"]', 'div[class*="css-"]']
+
+                for selector in selectors:
+                    try:
+                        page.wait_for_selector(selector, timeout=10000)
+                        break
+                    except:
+                        continue
 
                 # Extract index data using JavaScript
                 indices_data = page.evaluate('''() => {
@@ -185,6 +232,168 @@ class MarketIndexService:
             finally:
                 browser.close()
     
+    def _scrape_with_text_parsing(self) -> Dict[str, any]:
+        """
+        Fallback 2: 텍스트 기반 파싱 방식
+        - CSS 클래스 변경에 강함
+        - 페이지 전체 텍스트에서 지수명으로 찾기
+        """
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            try:
+                # 업비트 데이터랩 페이지로 변경
+                page.goto("https://datalab.upbit.com/", timeout=30000)
+                page.wait_for_load_state('networkidle', timeout=30000)
+
+                # 전체 텍스트 추출
+                text = page.evaluate('() => document.body.innerText')
+                lines = text.split('\n')
+
+                result = {'timestamp': datetime.now()}
+                indices = {'ubci': None, 'ubmi': None, 'ub10': None, 'ub30': None}
+
+                # 텍스트에서 지수 찾기
+                for i, line in enumerate(lines):
+                    if '업비트 종합 지수' in line:
+                        # 다음 2-3줄에서 숫자 찾기
+                        for j in range(i+1, min(i+4, len(lines))):
+                            import re
+                            value_match = re.search(r'([\d,]+\.\d+)', lines[j])
+                            if value_match:
+                                indices['ubci'] = float(value_match.group(1).replace(',', ''))
+                                # 변동률 찾기
+                                rate_match = re.search(r'([+-]?\d+\.\d+)%', lines[j+1] if j+1 < len(lines) else '')
+                                if rate_match:
+                                    change_rate = float(rate_match.group(1))
+                                    indices['ubci'] = {
+                                        'value': indices['ubci'],
+                                        'change': 0.0,
+                                        'change_rate': change_rate
+                                    }
+                                break
+
+                    elif '업비트 알트코인 지수' in line:
+                        for j in range(i+1, min(i+4, len(lines))):
+                            import re
+                            value_match = re.search(r'([\d,]+\.\d+)', lines[j])
+                            if value_match:
+                                indices['ubmi'] = float(value_match.group(1).replace(',', ''))
+                                rate_match = re.search(r'([+-]?\d+\.\d+)%', lines[j+1] if j+1 < len(lines) else '')
+                                if rate_match:
+                                    change_rate = float(rate_match.group(1))
+                                    indices['ubmi'] = {
+                                        'value': indices['ubmi'],
+                                        'change': 0.0,
+                                        'change_rate': change_rate
+                                    }
+                                break
+
+                    elif '업비트 10' in line and '업비트 100' not in line:
+                        for j in range(i+1, min(i+4, len(lines))):
+                            import re
+                            value_match = re.search(r'([\d,]+\.\d+)', lines[j])
+                            if value_match:
+                                indices['ub10'] = float(value_match.group(1).replace(',', ''))
+                                rate_match = re.search(r'([+-]?\d+\.\d+)%', lines[j+1] if j+1 < len(lines) else '')
+                                if rate_match:
+                                    change_rate = float(rate_match.group(1))
+                                    indices['ub10'] = {
+                                        'value': indices['ub10'],
+                                        'change': 0.0,
+                                        'change_rate': change_rate
+                                    }
+                                break
+
+                    elif '업비트 30' in line:
+                        for j in range(i+1, min(i+4, len(lines))):
+                            import re
+                            value_match = re.search(r'([\d,]+\.\d+)', lines[j])
+                            if value_match:
+                                indices['ub30'] = float(value_match.group(1).replace(',', ''))
+                                rate_match = re.search(r'([+-]?\d+\.\d+)%', lines[j+1] if j+1 < len(lines) else '')
+                                if rate_match:
+                                    change_rate = float(rate_match.group(1))
+                                    indices['ub30'] = {
+                                        'value': indices['ub30'],
+                                        'change': 0.0,
+                                        'change_rate': change_rate
+                                    }
+                                break
+
+                # 결과 구성
+                for key in ['ubci', 'ubmi', 'ub10', 'ub30']:
+                    if isinstance(indices[key], dict):
+                        result[key] = indices[key]
+                    elif indices[key]:
+                        result[key] = {
+                            'value': indices[key],
+                            'change': 0.0,
+                            'change_rate': 0.0
+                        }
+                    else:
+                        result[key] = {'value': 0.0, 'change': 0.0, 'change_rate': 0.0}
+
+                return result
+
+            except Exception as e:
+                logger.error(f"텍스트 파싱 실패: {e}")
+                raise
+            finally:
+                browser.close()
+
+    def _scrape_with_regex(self) -> Dict[str, any]:
+        """
+        Fallback 3: 정규식 기반 파싱
+        - 최후의 수단
+        - 페이지 HTML에서 직접 정규식으로 추출
+        """
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            try:
+                page.goto("https://datalab.upbit.com/", timeout=30000)
+                page.wait_for_load_state('networkidle', timeout=30000)
+
+                # HTML 전체 가져오기
+                html = page.content()
+
+                import re
+                result = {'timestamp': datetime.now()}
+
+                # 정규식으로 모든 숫자 패턴 찾기
+                # 예: "18,012.67" 형태의 숫자
+                pattern = r'([\d,]+\.\d{2})'
+                matches = re.findall(pattern, html)
+
+                # 상위 4개 큰 숫자를 지수로 가정 (간단한 휴리스틱)
+                if matches:
+                    numbers = [float(m.replace(',', '')) for m in matches]
+                    # 1000 이상의 숫자만 필터 (지수는 보통 큰 숫자)
+                    valid_numbers = sorted([n for n in numbers if n > 1000], reverse=True)[:4]
+
+                    keys = ['ubci', 'ubmi', 'ub10', 'ub30']
+                    for i, key in enumerate(keys):
+                        if i < len(valid_numbers):
+                            result[key] = {
+                                'value': valid_numbers[i],
+                                'change': 0.0,
+                                'change_rate': 0.0
+                            }
+                        else:
+                            result[key] = {'value': 0.0, 'change': 0.0, 'change_rate': 0.0}
+                else:
+                    for key in ['ubci', 'ubmi', 'ub10', 'ub30']:
+                        result[key] = {'value': 0.0, 'change': 0.0, 'change_rate': 0.0}
+
+                return result
+
+            except Exception as e:
+                logger.error(f"정규식 파싱 실패: {e}")
+                raise
+            finally:
+                browser.close()
+
     def _extract_indices_from_nextjs(self, data: dict) -> Optional[Dict]:
         """Next.js 데이터에서 지수 정보 추출"""
         try:

@@ -591,23 +591,16 @@ def main():
     with col_btn1:
         save_pinned_btn = st.button("지정종목저장", use_container_width=True, type="secondary", key="save_pinned_btn_top")
     with col_btn2:
-        single_analysis_btn = st.button("단일매수분석", use_container_width=True, type="secondary")
-    with col_btn3:
-        if 'continuous_analysis_running' not in st.session_state:
-            st.session_state.continuous_analysis_running = False
+        single_analysis_btn = st.button("단일분석", use_container_width=True, type="secondary")
+        if single_analysis_btn:
+            # Transaction 페이지로 이동 (지정종목 + 스크리닝 결과를 1회 분석)
+            st.switch_page("pages/Transaction.py")
 
-        if st.session_state.continuous_analysis_running:
-            stop_analysis_btn = st.button("매수분석정지", use_container_width=True, type="primary")
-            if stop_analysis_btn:
-                st.session_state.continuous_analysis_running = False
-                st.success("연속 매수 분석이 정지되었습니다.")
-                st.rerun()
-        else:
-            continuous_analysis_btn = st.button("연속매수분석", use_container_width=True, type="secondary")
-            if continuous_analysis_btn:
-                st.session_state.continuous_analysis_running = True
-                st.success("연속 매수 분석이 시작되었습니다.")
-                st.rerun()
+    with col_btn3:
+        continuous_analysis_btn = st.button("연속분석", use_container_width=True, type="secondary")
+        if continuous_analysis_btn:
+            # Transaction 페이지로 이동 (연속분석 모드는 페이지 내에서 설정)
+            st.switch_page("pages/Transaction.py")
 
     # 지정종목저장 버튼 처리 - 버튼 바로 아래에 배치
     if save_pinned_btn:

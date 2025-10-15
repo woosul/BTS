@@ -9,8 +9,9 @@ serverAddress = "localhost"
 serverPort = 8501
 
 [client]
-# Disable toolbar mode
-toolbarMode = "minimal"
+# Show toolbar in viewer mode (shows hamburger menu)
+# Options: "auto", "developer", "viewer", "minimal"
+toolbarMode = "viewer"
 
 [theme]
 # Use dark theme base

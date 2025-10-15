@@ -158,6 +158,10 @@ def get_services():
     return st.session_state.portfolio_service, st.session_state.wallet_service
 
 def main():
+    # 전역 스타일 적용
+    from presentation.styles.global_styles import apply_global_styles
+    apply_global_styles()
+
     st.markdown("<h1>포트폴리오 관리</h1>", unsafe_allow_html=True)
     st.markdown("<hr style='margin: 0.5rem 0;'>", unsafe_allow_html=True)
 
@@ -340,7 +344,7 @@ def main():
                     wallet = wallet_service.get_wallet(st.session_state.portfolio_wallet_id)
 
                     # 배분 실행
-                    result = portfolio_service.allocate_portfolio(
+                    result = portfolio_service.calculate_allocation(
                         available_balance=wallet.balance_krw,
                         selected_symbols=selected_symbols,
                         strategy_type=strategy_type,

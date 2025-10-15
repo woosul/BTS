@@ -130,7 +130,7 @@ def main():
             })
 
         render_metric_card_group(
-            title="업비트 종합지수",
+            title="업비트 종합 지수",
             metrics=upbit_metrics,
             columns=5
         )
@@ -201,7 +201,7 @@ def main():
             ])
 
         render_metric_card_group(
-            title="글로벌 암호화폐 시장",
+            title="글로벌 시장 지수",
             metrics=combined_metrics,
             columns=5
         )

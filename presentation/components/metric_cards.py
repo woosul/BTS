@@ -15,13 +15,13 @@ def render_metric_card(
     height: int = 60
 ):
     """
-    커스텀 메트릭 카드 렌더링
+    커스텀 메트릭 카드 렌더링 (반응형)
 
     Args:
         label: 지수명
         value: 지수값 (문자열)
         delta: 증감율 (백분율, 예: 1.5 = +1.5%)
-        width: 카드 너비 (px)
+        width: 카드 기본 너비 (px) - 실제로는 100% 사용
         height: 카드 높이 (px)
     """
     # 증감 여부에 따른 색상 및 아이콘 결정
@@ -45,14 +45,16 @@ def render_metric_card(
         delta_text = ""
         value_color = "white"  # delta 없으면 white
 
-    # HTML 카드 생성
+    # HTML 카드 생성 (반응형, default background : transparent)
     card_html = f"""
     <div style="
-        width: {width}px;
+        width: 100%;
+        min-width: 120px;
+        max-width: {width}px;
         height: {height}px;
-        background-color: transparent;
-        border-radius: 8px;
-        padding: 8px 14px 12px 14px;
+        background-color: #FFFFFF0C;
+        border-radius: 0px;
+        padding: 8px clamp(8px, 2vw, 14px) 12px clamp(8px, 2vw, 14px);
         display: flex;
         flex-direction: column;
         justify-content: space-between;
@@ -66,7 +68,7 @@ def render_metric_card(
         ">
             <span style="
                 font-size: 14px;
-                color: #9e9e9e;
+                color: #585a5C;
                 font-weight: 400;
             ">{label}</span>
             <span style="
@@ -98,7 +100,7 @@ def render_metric_card(
 def render_metric_card_group(
     title: str,
     metrics: list[dict],
-    columns: int = 4
+    columns: int = 5
 ):
     """
     메트릭 카드 그룹 렌더링
@@ -108,9 +110,9 @@ def render_metric_card_group(
         metrics: 메트릭 리스트 [{"label": "...", "value": "...", "delta": ...}, ...]
         columns: 열 개수
     """
-    # 그룹 제목 - deep gray, no bold
+    # 그룹 제목 - deep gray, no bold (default color is #54A0FD)
     if title:
-        st.markdown(f"<div style='color: #6e6e6e; font-size: 14px; margin-bottom: 8px;'>{title}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='color: #66686a; font-size: 14px; font-weight: 600; margin-bottom: 8px;'>{title}</div>", unsafe_allow_html=True)
 
     # 카드를 st.columns로 배치 (gap 설정)
     cols = st.columns(columns, gap="small")  # small gap ≈ 12px

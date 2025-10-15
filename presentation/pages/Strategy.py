@@ -155,6 +155,10 @@ def get_services():
     return st.session_state.strategy_service
 
 def main():
+    # 전역 스타일 적용
+    from presentation.styles.global_styles import apply_global_styles
+    apply_global_styles()
+
     st.title("전략 설정")
     st.markdown("---")
 
