@@ -27,6 +27,7 @@ fi
 # Set locale for Korean
 export LANG=ko_KR.UTF-8
 export LC_ALL=ko_KR.UTF-8
+export LANGUAGE=ko_KR:ko
 
 # Check if virtual environment exists
 if [ ! -d ".venv" ]; then

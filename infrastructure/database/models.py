@@ -454,7 +454,7 @@ class FilteredSymbolORM(Base):
         default=func.now(),
         index=True
     )
-    
+
     # 필터링 결과 상세 데이터
     korean_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     trading_value: Mapped[Optional[Decimal]] = mapped_column(Numeric(20, 2), nullable=True)  # 거래대금
@@ -467,6 +467,102 @@ class FilteredSymbolORM(Base):
 
     def __repr__(self):
         return f"<FilteredSymbol(id={self.id}, symbol={self.symbol}, profile_name={self.profile_name}, filtered_at={self.filtered_at})>"
+
+
+# ===== 마켓 인덱스 모델 =====
+class MarketIndexORM(Base):
+    """마켓 인덱스 캐시 테이블"""
+    __tablename__ = "market_indices"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    index_type: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        index=True
+    )  # upbit, global, coin, usd
+    code: Mapped[str] = mapped_column(
+        String(50),
+        nullable=False,
+        index=True,
+        unique=True
+    )  # ubci, ubmi, ub10, ub30, market_cap, BTC, etc.
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    value: Mapped[Decimal] = mapped_column(
+        Numeric(30, 8),
+        nullable=False,
+        default=Decimal("0")
+    )
+    change: Mapped[Decimal] = mapped_column(
+        Numeric(30, 8),
+        nullable=False,
+        default=Decimal("0")
+    )
+    change_rate: Mapped[Decimal] = mapped_column(
+        Numeric(10, 4),
+        nullable=False,
+        default=Decimal("0")
+    )
+    extra_data: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True
+    )  # JSON 문자열
+    ttl_seconds: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=300
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now(),
+        index=True
+    )
+
+    __table_args__ = (
+        Index("ix_index_type_code", "index_type", "code"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<MarketIndex(type={self.index_type}, code={self.code}, value={self.value})>"
+
+
+# ===== 사용자 설정 모델 =====
+class UserSettingsORM(Base):
+    """사용자 설정 테이블"""
+    __tablename__ = "user_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    setting_key: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        unique=True,
+        index=True
+    )
+    setting_value: Mapped[str] = mapped_column(
+        Text,
+        nullable=False
+    )
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        nullable=False,
+        server_default=func.now(),
+        onupdate=func.now()
+    )
+
+    def __repr__(self) -> str:
+        return f"<UserSettings(key={self.setting_key}, value={self.setting_value})>"
 
 
 if __name__ == "__main__":

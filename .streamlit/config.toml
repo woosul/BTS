@@ -3,10 +3,16 @@
 headless = true
 
 [browser]
-# Prevent browser from automatically opening  
+# Prevent browser from automatically opening
 gatherUsageStats = false
 serverAddress = "localhost"
 serverPort = 8501
+
+# Force Korean locale
+[runner]
+# Set default locale to Korean
+# This ensures consistent behavior regardless of system locale
+fastReruns = true
 
 [client]
 # Show toolbar in viewer mode (shows hamburger menu)

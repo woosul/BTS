@@ -12,7 +12,8 @@ def render_metric_card(
     value: str,
     delta: Optional[float] = None,
     width: int = 200,
-    height: int = 60
+    height: int = 60,
+    card_id: Optional[str] = None
 ):
     """
     커스텀 메트릭 카드 렌더링 (반응형)
@@ -23,6 +24,7 @@ def render_metric_card(
         delta: 증감율 (백분율, 예: 1.5 = +1.5%)
         width: 카드 기본 너비 (px) - 실제로는 100% 사용
         height: 카드 높이 (px)
+        card_id: 카드 고유 ID (WebSocket 업데이트용)
     """
     # 증감 여부에 따른 색상 및 아이콘 결정
     if delta is not None:
@@ -45,9 +47,12 @@ def render_metric_card(
         delta_text = ""
         value_color = "white"  # delta 없으면 white
 
+    # ID 속성 추가 (있을 경우)
+    id_attr = f'id="{card_id}"' if card_id else ''
+
     # HTML 카드 생성 (반응형, default background : transparent)
     card_html = f"""
-    <div style="
+    <div {id_attr} style="
         width: 100%;
         min-width: 120px;
         max-width: {width}px;
@@ -71,7 +76,7 @@ def render_metric_card(
                 color: #585a5C;
                 font-weight: 400;
             ">{label}</span>
-            <span style="
+            <span class="metric-delta" style="
                 font-size: 13px;
                 color: {delta_color};
                 font-weight: 400;
@@ -84,7 +89,7 @@ def render_metric_card(
             align-items: flex-end;
             margin-top: 2px;
         ">
-            <span style="
+            <span class="metric-value" style="
                 font-size: 20px;
                 color: {value_color};
                 font-weight: 700;
@@ -107,7 +112,7 @@ def render_metric_card_group(
 
     Args:
         title: 그룹 제목
-        metrics: 메트릭 리스트 [{"label": "...", "value": "...", "delta": ...}, ...]
+        metrics: 메트릭 리스트 [{"label": "...", "value": "...", "delta": ..., "card_id": "..."}, ...]
         columns: 열 개수
     """
     # 그룹 제목 - deep gray, no bold (default color is #54A0FD)
@@ -123,5 +128,6 @@ def render_metric_card_group(
             render_metric_card(
                 label=metric.get("label", ""),
                 value=metric.get("value", "N/A"),
-                delta=metric.get("delta", None)
+                delta=metric.get("delta", None),
+                card_id=metric.get("card_id", None)  # NEW: Pass card_id if available
             )

@@ -17,13 +17,33 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# 페이지 설정
+# 페이지 설정 (MUST be first Streamlit command)
 st.set_page_config(
     page_title="BTS | Bitcoin Trading System",
     page_icon="₿",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# 마켓 인덱스 스케줄러 초기화 (전역 싱글톤 패턴)
+from application.services.market_index_scheduler import MarketIndexScheduler
+
+# 전역 변수로 단일 인스턴스 보장
+if not hasattr(st, '_bts_scheduler_instance'):
+    try:
+        scheduler = MarketIndexScheduler()
+        scheduler.start()
+        st._bts_scheduler_instance = scheduler
+        logger.info("✓ 마켓 인덱스 스케줄러 시작됨 (전역 싱글톤)")
+    except Exception as e:
+        logger.error(f"스케줄러 시작 실패: {e}")
+        st._bts_scheduler_instance = None
+else:
+    logger.debug("기존 스케줄러 인스턴스 재사용")
+
+# session_state에도 참조 저장 (호환성)
+if 'market_index_scheduler' not in st.session_state:
+    st.session_state.market_index_scheduler = st._bts_scheduler_instance
 
 # 로고 설정
 # 프로젝트 루트에서 실행되므로 resource 폴더 참조

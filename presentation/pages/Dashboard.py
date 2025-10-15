@@ -16,8 +16,10 @@ from infrastructure.database.connection import get_db_session
 from application.services.wallet_service import WalletService
 from application.services.trading_service import TradingService
 from application.services.strategy_service import StrategyService
-from application.services.market_index_service import MarketIndexService
+from application.services.cached_market_index_service import CachedMarketIndexService
 from infrastructure.exchanges.upbit_client import UpbitClient
+from infrastructure.repositories.user_settings_repository import UserSettingsRepository
+from domain.entities.user_settings import UserSettings
 from presentation.components.metrics import (
     display_trading_metrics,
     display_performance_summary,
@@ -63,39 +65,75 @@ def main():
     # 전역 스타일 적용
     from presentation.styles.global_styles import apply_global_styles
     apply_global_styles()
-    
+
     st.title("대시보드")
+
+    # 갱신 간격 설정
+    from datetime import datetime
+    settings_repo = UserSettingsRepository()
+
+    # 현재 설정값 가져오기
+    current_setting = settings_repo.get_by_key(UserSettings.DASHBOARD_REFRESH_INTERVAL)
+    current_interval = int(current_setting.setting_value) if current_setting else 0
+
+    # 간격 옵션
+    interval_options = {
+        "OFF": 0,
+        "10초": 10,
+        "30초": 30,
+        "1분": 60,
+        "3분": 180,
+        "5분": 300,
+        "10분": 600
+    }
+
+    current_label = next((k for k, v in interval_options.items() if v == current_interval), "OFF")
+    current_index = list(interval_options.keys()).index(current_label)
+
+    # 간단한 인라인 레이아웃
+    col1, col2 = st.columns([5, 1])
+    with col1:
+        st.markdown(f'<span style="color: rgba(250, 250, 250, 0.6); font-size: 0.875rem;">마지막 업데이트 | {datetime.now().strftime("%Y-%m-%d %H:%M:%S")} | 암호화폐 시장 지수 설정 주기별 갱신</span>', unsafe_allow_html=True)
+    with col2:
+        selected_label = st.selectbox(
+            "갱신 간격",
+            options=list(interval_options.keys()),
+            index=current_index,
+            key="dashboard_refresh_interval",
+            label_visibility="collapsed"
+        )
+
+    # 설정 변경 시 저장
+    selected_interval = interval_options[selected_label]
+    if selected_interval != current_interval:
+        settings_repo.upsert(
+            key=UserSettings.DASHBOARD_REFRESH_INTERVAL,
+            value=str(selected_interval),
+            description="대시보드 페이지 자동 갱신 간격 (초)"
+        )
+        st.success(f"갱신 간격이 {selected_label}으로 변경되었습니다.")
+        st.rerun()
+
     st.markdown("---")
 
-    # 업비트 종합지수 + USD 환율
+    # 업비트 종합지수 + USD 환율 (DB 캐시 사용)
     try:
-        market_index_service = MarketIndexService()
+        market_index_service = CachedMarketIndexService()
 
-        # 캐시를 사용하여 Playwright 호출 최소화 (5분 캐시)
-        @st.cache_data(ttl=300)
-        def get_cached_upbit_indices():
-            service = MarketIndexService()
-            return service.get_upbit_indices()
-
-        @st.cache_data(ttl=300)
-        def get_cached_usd_rate():
-            service = MarketIndexService()
-            return service.get_usd_krw_rate()
-
-        with st.spinner('업비트 지수 로딩 중...'):
-            upbit_data = get_cached_upbit_indices()
-            usd_data = get_cached_usd_rate()
+        # DB 캐시에서 즉시 조회 (만료되면 백그라운드 업데이트)
+        upbit_data = market_index_service.get_upbit_indices_cached()
+        usd_data = market_index_service.get_usd_krw_cached()
 
         # 업비트 지수 카드 그룹 (4개 지수 + USD 환율 = 5개)
         upbit_metrics = []
         indices_config = [
-            ('ubci', 'UBCI'),
-            ('ubmi', 'UBMI'),
-            ('ub10', 'UB10'),
-            ('ub30', 'UB30')
+            ('ubci', 'UBCI', 'ubci-card'),
+            ('ubmi', 'UBMI', 'ubmi-card'),
+            ('ub10', 'UB10', 'ub10-card'),
+            ('ub30', 'UB30', 'ub30-card')
         ]
 
-        for key, label in indices_config:
+        for key, label, card_id in indices_config:
             index_data = upbit_data.get(key, {})
             value = index_data.get('value', 0)
             change_rate = index_data.get('change_rate', 0)
@@ -106,13 +144,15 @@ def main():
                 upbit_metrics.append({
                     "label": label,
                     "value": f"{value:,.2f}",
-                    "delta": change_rate
+                    "delta": change_rate,
+                    "card_id": card_id
                 })
             else:
                 upbit_metrics.append({
                     "label": label,
                     "value": "N/A",
-                    "delta": None
+                    "delta": None,
+                    "card_id": card_id
                 })
 
         # USD 환율 추가
@@ -120,13 +160,15 @@ def main():
             upbit_metrics.append({
                 "label": "USD/KRW",
                 "value": f"₩{usd_data['value']:,.2f}",
-                "delta": usd_data['change_rate']
+                "delta": usd_data['change_rate'],
+                "card_id": "usd-krw-card"
             })
         else:
             upbit_metrics.append({
                 "label": "USD/KRW",
                 "value": "N/A",
-                "delta": None
+                "delta": None,
+                "card_id": "usd-krw-card"
             })
 
         render_metric_card_group(
@@ -143,15 +185,11 @@ def main():
 
     # 글로벌 마켓 지수 + 7일 평균 (통합)
     try:
-        market_index_service = MarketIndexService()
-        global_data = market_index_service.get_global_crypto_data()
+        # 글로벌 데이터는 DB 캐시에서 조회
+        global_data = market_index_service.get_global_crypto_data_cached()
 
-        # 상위 코인 7일 추세 데이터 가져오기
-        @st.cache_data(ttl=300)  # 5분 캐시
-        def get_cached_sparkline_data():
-            return market_index_service.get_top_coins_with_sparkline(limit=10)
-
-        coins_data = get_cached_sparkline_data()
+        # 상위 코인 데이터도 DB 캐시에서 조회 (Streamlit 캐시 사용 안 함)
+        coins_data = market_index_service.get_top_coins_with_sparkline_cached(limit=10)
 
         # 글로벌 + 7일 평균 통합 카드 (5개 구성)
         market_cap_trillion = global_data['total_market_cap_usd'] / 1_000_000_000_000
@@ -161,17 +199,20 @@ def main():
             {
                 "label": "총 시가총액",
                 "value": f"${market_cap_trillion:.2f}T",
-                "delta": global_data['market_cap_change_24h']  # 24h 변동률 있음
+                "delta": global_data['market_cap_change_24h'],  # 24h 변동률 있음
+                "card_id": "global-market-cap-card"
             },
             {
                 "label": "24h 거래량",
                 "value": f"${volume_billion:.1f}B",
-                "delta": None  # 변동률 데이터 없음
+                "delta": None,  # 변동률 데이터 없음
+                "card_id": "global-volume-card"
             },
             {
                 "label": "BTC 도미넌스",
                 "value": f"{global_data['btc_dominance']:.2f}%",
-                "delta": None  # 변동률 데이터 없음
+                "delta": None,  # 변동률 데이터 없음
+                "card_id": "btc-dominance-card"
             }
         ]
 
@@ -441,6 +482,206 @@ def main():
         display_recent_trades_table(trades, limit=10)
     else:
         st.info("거래 내역이 없습니다.")
+
+    # WebSocket 실시간 업데이트 (parent 윈도우에서 실행)
+    import streamlit.components.v1 as components
+    from config.market_index_config import MarketIndexConfig
+    ws_url = MarketIndexConfig.get_websocket_url()
+
+    # parent.window에서 WebSocket 실행 (iframe 샌드박스 우회)
+    websocket_js = f"""
+    <script>
+    (function() {{
+        // parent 윈도우에 WebSocket 함수 정의 (중복 방지)
+        if (window.parent.btsDashboardWebSocket) {{
+            console.log('[WebSocket] 이미 초기화됨');
+            return;
+        }}
+
+        console.log('[WebSocket] parent 윈도우에서 초기화 시작');
+
+        window.parent.btsDashboardWebSocket = {{
+            ws: null,
+            reconnectInterval: null,
+
+            connect: function() {{
+                const self = window.parent.btsDashboardWebSocket;
+
+                if (self.ws && (self.ws.readyState === WebSocket.CONNECTING || self.ws.readyState === WebSocket.OPEN)) {{
+                    console.log('[WebSocket] 이미 연결 중');
+                    return;
+                }}
+
+                console.log('[WebSocket] 연결 시도: {ws_url}');
+                self.ws = new WebSocket('{ws_url}');
+
+                self.ws.onopen = function(event) {{
+                    console.log('[WebSocket] ✓ 연결 성공');
+                    if (self.reconnectInterval) {{
+                        clearInterval(self.reconnectInterval);
+                        self.reconnectInterval = null;
+                    }}
+
+                    // ping 테스트 전송
+                    if (self.ws.readyState === WebSocket.OPEN) {{
+                        self.ws.send('ping');
+                        console.log('[WebSocket] ping 전송');
+                    }}
+                }};
+
+                self.ws.onmessage = function(event) {{
+                    console.log('[WebSocket] 메시지 수신:', event.data.substring(0, 100));
+
+                    if (event.data === 'pong') {{
+                        console.log('[WebSocket] pong 수신 - 통신 정상');
+                        return;
+                    }}
+
+                    try {{
+                        const message = JSON.parse(event.data);
+                        console.log('[WebSocket] JSON 파싱 성공, type:', message.type);
+
+                        if (message.type === 'indices_updated') {{
+                            console.log('[WebSocket] 지수 데이터 수신 완료');
+                            console.log('[WebSocket] upbit:', message.data.upbit ? 'OK' : 'NO');
+                            console.log('[WebSocket] usd_krw:', message.data.usd_krw ? 'OK' : 'NO');
+                            console.log('[WebSocket] global:', message.data.global ? 'OK' : 'NO');
+
+                            window.parent.btsDashboardWebSocket.updateDashboard(message.data, message.timestamp);
+                        }}
+                    }} catch (e) {{
+                        console.error('[WebSocket] JSON 파싱 실패:', e);
+                    }}
+                }};
+
+                self.ws.onerror = function(error) {{
+                    console.error('[WebSocket] 오류:', error);
+                }};
+
+                self.ws.onclose = function(event) {{
+                    console.log('[WebSocket] 연결 종료 (code=' + event.code + ')');
+                    self.ws = null;
+                    if (!self.reconnectInterval) {{
+                        console.log('[WebSocket] 5초 후 재연결');
+                        self.reconnectInterval = setInterval(function() {{
+                            window.parent.btsDashboardWebSocket.connect();
+                        }}, 5000);
+                    }}
+                }};
+            }},
+
+            updateDashboard: function(data, timestamp) {{
+                console.log('[WebSocket] 대시보드 업데이트 시작');
+                const doc = window.parent.document;
+                let updateCount = 0;
+
+                // 업비트 지수
+                if (data.upbit) {{
+                    ['ubci', 'ubmi', 'ub10', 'ub30'].forEach(function(key) {{
+                        if (data.upbit[key]) {{
+                            const card = doc.getElementById(key + '-card');
+                            if (card) {{
+                                const valueSpan = card.querySelector('.metric-value');
+                                const deltaSpan = card.querySelector('.metric-delta');
+
+                                if (valueSpan) {{
+                                    const value = data.upbit[key].value || 0;
+                                    valueSpan.textContent = value > 0 ? value.toLocaleString('en-US', {{minimumFractionDigits: 2, maximumFractionDigits: 2}}) : 'N/A';
+
+                                    if (deltaSpan) {{
+                                        const changeRate = data.upbit[key].change_rate || 0;
+                                        if (changeRate > 0) {{
+                                            deltaSpan.innerHTML = '<span style="font-size: 8px;">▲</span> ' + Math.abs(changeRate).toFixed(2) + '%';
+                                            deltaSpan.style.color = '#ef5350';
+                                            valueSpan.style.color = '#ef5350';
+                                        }} else if (changeRate < 0) {{
+                                            deltaSpan.innerHTML = '<span style="font-size: 8px;">▼</span> ' + Math.abs(changeRate).toFixed(2) + '%';
+                                            deltaSpan.style.color = '#42a5f5';
+                                            valueSpan.style.color = '#42a5f5';
+                                        }} else {{
+                                            deltaSpan.innerHTML = '<span style="font-size: 8px;">-</span> 0.00%';
+                                            deltaSpan.style.color = '#9e9e9e';
+                                            valueSpan.style.color = 'white';
+                                        }}
+                                    }}
+                                    updateCount++;
+                                }}
+                            }}
+                        }}
+                    }});
+                }}
+
+                // USD/KRW
+                if (data.usd_krw) {{
+                    const card = doc.getElementById('usd-krw-card');
+                    if (card) {{
+                        const valueSpan = card.querySelector('.metric-value');
+                        if (valueSpan) {{
+                            const value = data.usd_krw.value || 0;
+                            valueSpan.textContent = value > 0 ? '₩' + value.toLocaleString('en-US', {{minimumFractionDigits: 2, maximumFractionDigits: 2}}) : 'N/A';
+                            updateCount++;
+                        }}
+                    }}
+                }}
+
+                // 글로벌 데이터
+                if (data.global) {{
+                    const marketCapCard = doc.getElementById('global-market-cap-card');
+                    if (marketCapCard && data.global.total_market_cap_usd) {{
+                        const valueSpan = marketCapCard.querySelector('.metric-value');
+                        if (valueSpan) {{
+                            const marketCapTrillion = data.global.total_market_cap_usd / 1_000_000_000_000;
+                            valueSpan.textContent = '$' + marketCapTrillion.toFixed(2) + 'T';
+                            updateCount++;
+                        }}
+                    }}
+
+                    const volumeCard = doc.getElementById('global-volume-card');
+                    if (volumeCard && data.global.total_volume_usd) {{
+                        const valueSpan = volumeCard.querySelector('.metric-value');
+                        if (valueSpan) {{
+                            const volumeBillion = data.global.total_volume_usd / 1_000_000_000;
+                            valueSpan.textContent = '$' + volumeBillion.toFixed(1) + 'B';
+                            updateCount++;
+                        }}
+                    }}
+
+                    const btcDomCard = doc.getElementById('btc-dominance-card');
+                    if (btcDomCard && data.global.btc_dominance !== undefined) {{
+                        const valueSpan = btcDomCard.querySelector('.metric-value');
+                        if (valueSpan) {{
+                            valueSpan.textContent = data.global.btc_dominance.toFixed(2) + '%';
+                            updateCount++;
+                        }}
+                    }}
+                }}
+
+                // 마지막 업데이트 시간
+                const timeElement = doc.querySelector('.refresh-update-text span');
+                if (timeElement && timestamp) {{
+                    const date = new Date(timestamp);
+                    const formatted = date.getFullYear() + '-' +
+                        String(date.getMonth() + 1).padStart(2, '0') + '-' +
+                        String(date.getDate()).padStart(2, '0') + ' ' +
+                        String(date.getHours()).padStart(2, '0') + ':' +
+                        String(date.getMinutes()).padStart(2, '0') + ':' +
+                        String(date.getSeconds()).padStart(2, '0');
+                    timeElement.innerHTML = '마지막 업데이트: ' + formatted + ' | 암호화폐 시장 지수 설정 주기별 갱신';
+                }}
+
+                console.log('[WebSocket] 업데이트 완료 (' + updateCount + '개)');
+            }}
+        }};
+
+        // 1초 후 연결
+        setTimeout(function() {{
+            window.parent.btsDashboardWebSocket.connect();
+        }}, 1000);
+    }})();
+    </script>
+    """
+
+    components.html(websocket_js, height=1)
 
 if __name__ == "__main__":
     main()
