@@ -65,44 +65,9 @@ try:
 except Exception as e:
     logger.warning(f"로고 설정 실패: {e}")
 
-# 전역 스타일
-st.markdown("""
-    <style>
-    /* 모든 버튼의 border-radius를 0으로 설정 (number input 제외) */
-    button:not([data-testid="stNumberInput"] button) {
-        border-radius: 0 !important;
-    }
-    
-    /* 사이드바 width 설정 제거 - Streamlit 기본 동작 사용 */
-    /* 필요시 나중에 재적용 */
-
-    /* 사이드바 네비게이션 메뉴 스타일 */
-    /* 기본 메뉴 아이템 */
-    [data-testid="stSidebarNav"] li a {
-        border-radius: 2px !important;
-        transition: all 0.2s ease !important;
-    }
-    
-    /* Hover 상태 */
-    [data-testid="stSidebarNav"] li a:hover {
-        background-color: rgba(84, 160, 253, 0.1) !important;
-        border-radius: 2px !important;
-    }
-    
-    /* 선택된 메뉴 (active) */
-    [data-testid="stSidebarNav"] li a[aria-current="page"] {
-        background-color: #54A0FD !important;
-        border-radius: 2px !important;
-        font-weight: 600 !important;
-    }
-    
-    /* 선택된 메뉴의 아이콘과 텍스트 색상 */
-    [data-testid="stSidebarNav"] li a[aria-current="page"] span,
-    [data-testid="stSidebarNav"] li a[aria-current="page"] p {
-        color: #FFFFFF !important;
-    }
-    </style>
-""", unsafe_allow_html=True)
+# 전역 스타일 적용 (한 번만)
+from presentation.styles.global_styles import apply_global_styles
+apply_global_styles()
 
 # 페이지 정의 (st.Page 객체)
 home_page = st.Page(

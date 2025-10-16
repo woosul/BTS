@@ -67,15 +67,40 @@ def apply_global_styles():
     [data-testid="stSidebarNav"] ul li a {
         text-align: left !important;
         justify-content: flex-start !important;
-        background-color: var(--primary-color) !important;
         border-radius: 4px !important;
         margin-bottom: 4px !important;
+    }
+
+    /* hover 상태 - 가장 연한 투명도 (40%) */
+    [data-testid="stSidebarNav"] ul li a:hover {
+        background-color: rgba(0, 104, 201, 0.4) !important;
+    }
+
+    /* select 상태 (클릭/포커스) - 중간 투명도 (70%) */
+    [data-testid="stSidebarNav"] ul li a:focus,
+    [data-testid="stSidebarNav"] ul li a:active {
+        background-color: rgba(0, 104, 201, 0.7) !important;
+    }
+
+    /* active 상태 (현재 페이지) - 완전 불투명 (100%) */
+    [data-testid="stSidebarNav"] ul li a[aria-current="page"],
+    [data-testid="stSidebarNav"] ul li a[data-selected="true"],
+    [data-testid="stSidebarNav"] ul li a.selected,
+    [data-testid="stSidebarNav"] ul li.selected a,
+    [data-testid="stSidebarNav"] ul li a[aria-selected="true"],
+    [data-testid="stSidebarNav"] ul li.active a,
+    [data-testid="stSidebarNav"] ul li a.active,
+    [data-testid="stSidebarNav"] a[data-active="true"],
+    [data-testid="stSidebarNav"] li[aria-selected="true"] a {
+        background-color: rgba(0, 104, 201, 1.0) !important;
+        font-weight: bold !important;
+        color: white !important;
     }
 
     /* ==================== 타이틀 크기 조정 ==================== */
     h1 {
         font-size: 1.8rem !important;
-        margin-top: 0.5rem !important;
+        margin-top: 0 !important;
         margin-bottom: 0.5rem !important;
     }
     h2 {

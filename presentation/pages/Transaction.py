@@ -27,18 +27,20 @@ from core.enums import StrategySignal
 
 logger = get_logger(__name__)
 
-st.set_page_config(
-    page_title="거래분석 - BTS",
-    page_icon="",
-    layout="wide"
-)
+# st.navigation을 사용할 때는 각 페이지에서 st.set_page_config와 st.logo를 호출하면 안 됨
+# 메인 streamlit_app.py에서만 설정해야 함
+# st.set_page_config(
+#     page_title="거래분석 - BTS",
+#     page_icon="",
+#     layout="wide"
+# )
 
-# 사이드바 로고 설정
-logo_path = str(project_root / "resource" / "image" / "peaknine_logo_01.svg")
-st.logo(
-    image=logo_path,
-    icon_image=logo_path
-)
+# # 사이드바 로고 설정
+# logo_path = str(project_root / "resource" / "image" / "peaknine_logo_01.svg")
+# st.logo(
+#     image=logo_path,
+#     icon_image=logo_path
+# )
 
 def get_services():
     """서비스 인스턴스 가져오기"""
@@ -239,10 +241,6 @@ def show_continuous_analysis_modal():
             st.rerun()
 
 def main():
-    # 전역 스타일 적용
-    from presentation.styles.global_styles import apply_global_styles
-    apply_global_styles()
-
     # 서비스 초기화
     entry_service, exit_service, screening_service, pinned_repo, db = get_services()
 

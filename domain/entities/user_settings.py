@@ -22,6 +22,10 @@ class UserSettings:
     # 설정 키 상수
     DASHBOARD_REFRESH_INTERVAL = "dashboard_refresh_interval"
     GENERAL_UPDATE_INTERVAL = "general_update_interval"
+    # WEBSOCKET_UPDATE_INTERVAL 제거 - 대시보드 업데이트 주기에 연동
+    CACHE_TTL_UPBIT = "cache_ttl_upbit"
+    CACHE_TTL_GLOBAL = "cache_ttl_global"
+    CACHE_TTL_USD = "cache_ttl_usd"
 
     @classmethod
     def create(cls, key: str, value: str, description: Optional[str] = None) -> "UserSettings":
@@ -48,6 +52,26 @@ class UserSettings:
             key=cls.GENERAL_UPDATE_INTERVAL,
             value=str(interval_seconds),
             description="백그라운드 일반 업데이트 간격 (초)"
+        )
+
+    # create_websocket_update_interval 메서드 제거 - 대시보드 업데이트 주기에 연동
+
+    @classmethod
+    def create_cache_ttl(cls, cache_type: str, ttl_seconds: int) -> "UserSettings":
+        """캐시 TTL 설정 생성"""
+        key_mapping = {
+            'upbit': cls.CACHE_TTL_UPBIT,
+            'global': cls.CACHE_TTL_GLOBAL,
+            'usd': cls.CACHE_TTL_USD
+        }
+        
+        if cache_type not in key_mapping:
+            raise ValueError(f"Unknown cache type: {cache_type}")
+            
+        return cls.create(
+            key=key_mapping[cache_type],
+            value=str(ttl_seconds),
+            description=f"{cache_type.upper()} 캐시 TTL (초)"
         )
 
     def get_value_as_int(self) -> int:

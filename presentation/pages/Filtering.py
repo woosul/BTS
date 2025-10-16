@@ -26,19 +26,21 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-st.set_page_config(
-    page_title="Filtering - BTS",
-    page_icon="�",
-    layout="wide"
-)
+# st.navigation을 사용할 때는 각 페이지에서 st.set_page_config와 st.logo를 호출하면 안 됨
+# 메인 streamlit_app.py에서만 설정해야 함
+# st.set_page_config(
+#     page_title="Filtering - BTS",
+#     page_icon="�",
+#     layout="wide"
+# )
 
-# 로고 설정
-logo_path = str(project_root / "resource" / "image" / "peaknine_logo_01.svg")
-icon_path = str(project_root / "resource" / "image" / "peaknine_02.png")
-st.logo(
-    image=logo_path,
-    icon_image=icon_path
-)
+# # 로고 설정
+# logo_path = str(project_root / "resource" / "image" / "peaknine_logo_01.svg")
+# icon_path = str(project_root / "resource" / "image" / "peaknine_02.png")
+# st.logo(
+#     image=logo_path,
+#     icon_image=icon_path
+# )
 
 
 def get_services():
@@ -395,10 +397,6 @@ def render_filter_condition_ui(market: str, loaded_conditions: FilterCondition =
 
 
 def main():
-    # 전역 스타일 적용
-    from presentation.styles.global_styles import apply_global_styles
-    apply_global_styles()
-    
     st.title("종목 필터링")
     st.markdown("---")
     

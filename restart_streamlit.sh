@@ -35,8 +35,8 @@ if [ ! -d ".venv" ]; then
     exit 1
 fi
 
-# Start the new Streamlit process in SPA mode using venv python directly
+# Start the new Streamlit process in SPA mode using full venv path
 echo "Starting new Streamlit process (SPA mode)..."
-STREAMLIT_EMAIL="" .venv/bin/python -m streamlit run presentation/streamlit_app.py --server.headless=true > streamlit.log 2>&1 &
+STREAMLIT_EMAIL="" "$SCRIPT_DIR/.venv/bin/python" -m streamlit run presentation/streamlit_app.py --server.headless=true > streamlit.log 2>&1 &
 
 echo "Streamlit started. Check http://localhost:8501"

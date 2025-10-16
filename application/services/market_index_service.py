@@ -4,12 +4,14 @@ BTS 마켓 지수 서비스
 업비트 종합지수(UBCI) 및 글로벌 암호화폐 지수 제공
 """
 import json
+import time
 import requests
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
+from config.market_index_config import MarketIndexConfig
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -27,8 +29,10 @@ class MarketIndexService:
     UPBIT_CRIX_URL = "https://crix-api-cdn.upbit.com/v1/crix/candles/days"
     COINGECKO_GLOBAL_URL = "https://api.coingecko.com/api/v3/global"
     COINGECKO_MARKETS_URL = "https://api.coingecko.com/api/v3/coins/markets"
-    # 한국수출입은행 환율 API (무료, 인증키 불필요)
-    EXCHANGE_RATE_API_URL = "https://www.koreaexim.go.kr/site/program/financial/exchangeJSON"
+    # FxRatesAPI (실시간 환율 API - 무료 플랜: 1000 requests/month)
+    FXRATES_API_BASE_URL = "https://api.fxratesapi.com/latest"
+    # Fallback: Currency API (일일 업데이트만 지원)
+    CURRENCY_API_BASE_URL = "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json"
 
     def __init__(self):
         self.session = requests.Session()
@@ -36,19 +40,34 @@ class MarketIndexService:
             'User-Agent': 'pyupbit'
         })
         self._last_coingecko_call = None
+        self._last_fxrates_call = None
+
+        # .env에서 FxRatesAPI 키 가져오기
+        import os
+        from dotenv import load_dotenv
+        load_dotenv()
+        self.fxrates_api_key = os.getenv('CURRENCY_API_KEY', '')
     
     # ===== 업비트 지수 (API 우선, 스크래핑 fallback) =====
     
     def get_upbit_indices(self) -> Dict[str, any]:
         """
-        업비트 종합지수 데이터 가져오기
-
-        다중 fallback 전략으로 안정성 확보:
-        1. CSS 셀렉터 방식 (빠름)
-        2. 텍스트 기반 파싱 (안정적)
-        3. 정규식 기반 파싱 (최후)
+        업비트 지수 데이터 수집 (다중 fallback)
+        1. 간단한 requests 방식 (가장 빠름)
+        2. CSS 셀렉터 방식 (빠름)
+        3. 텍스트 기반 파싱 (안정적)
+        4. 정규식 기반 파싱 (최후)
         """
         logger.info("업비트 지수 데이터 가져오기 시작 (다중 fallback)")
+
+        # Fallback 0: 간단한 requests 방식 (가장 빠름)
+        try:
+            result = self._scrape_with_requests()
+            if self._is_valid_result(result):
+                logger.info("✓ Fallback 0 성공: 간단한 requests 방식")
+                return result
+        except Exception as e:
+            logger.warning(f"✗ Fallback 0 실패 (requests): {e}")
 
         # Fallback 1: CSS 셀렉터 방식
         try:
@@ -56,6 +75,8 @@ class MarketIndexService:
             if self._is_valid_result(result):
                 logger.info("✓ Fallback 1 성공: CSS 셀렉터 방식")
                 return result
+        except Exception as e:
+            logger.warning(f"✗ Fallback 1 실패 (CSS): {e}")
         except Exception as e:
             logger.warning(f"✗ Fallback 1 실패 (CSS 셀렉터): {e}")
 
@@ -110,7 +131,7 @@ class MarketIndexService:
                     "code": f"IDX.UPBIT.{code}",
                     "count": 1
                 }
-                response = self.session.get(self.UPBIT_CRIX_URL, params=params, timeout=10)
+                response = self.session.get(self.UPBIT_CRIX_URL, params=params, timeout=MarketIndexConfig.TIMEOUT_UPBIT_API)
                 response.raise_for_status()
                 data = response.json()
 
@@ -144,28 +165,70 @@ class MarketIndexService:
 
         return result
 
+    def _scrape_with_requests(self) -> Dict[str, any]:
+        """
+        Fallback 0: 간단한 requests 방식으로 업비트 CRIX API 호출
+        가장 빠르고 안정적인 방법이지만, API 구조 변경에 취약할 수 있음
+        """
+        try:
+            # 업비트 CRIX API를 통한 지수 데이터 조회
+            response = self.session.get(self.UPBIT_CRIX_URL, timeout=MarketIndexConfig.TIMEOUT_UPBIT_API)
+            response.raise_for_status()
+            
+            data = response.json()
+            result = {'timestamp': datetime.now()}
+            
+            # CRIX 응답에서 지수 정보 추출
+            if isinstance(data, list) and len(data) > 0:
+                # 첫 번째 항목에서 지수 정보 추출 (실제 API 응답 구조에 맞게 조정 필요)
+                for item in data:
+                    if 'code' in item and 'trade_price' in item:
+                        code = item['code'].lower()
+                        price = float(item.get('trade_price', 0))
+                        change = float(item.get('change_price', 0))
+                        change_rate = float(item.get('change_rate', 0)) * 100
+                        
+                        if code in ['ubci', 'ubmi', 'ub10', 'ub30']:
+                            result[code] = {
+                                'value': price,
+                                'change': change,
+                                'change_rate': change_rate
+                            }
+            
+            # 기본값 설정 (데이터가 없는 경우)
+            for key in ['ubci', 'ubmi', 'ub10', 'ub30']:
+                if key not in result:
+                    result[key] = {'value': 0.0, 'change': 0.0, 'change_rate': 0.0}
+            
+            return result
+            
+        except Exception as e:
+            logger.warning(f"Requests 방식 스크래핑 실패: {e}")
+            raise
+
     def _scrape_with_css_selector(self) -> Dict[str, any]:
         """
         Fallback 1: CSS 셀렉터 방식으로 스크래핑
         - 빠르지만 CSS 클래스 변경에 취약
         - 짧은 타임아웃(10초)
+        - USD/KRW 환율도 함께 추출
         """
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
             try:
-                page.goto(self.UPBIT_TRENDS_URL, timeout=30000)
+                page.goto(self.UPBIT_TRENDS_URL, timeout=MarketIndexConfig.TIMEOUT_UPBIT_SCRAPING * 1000)
                 # 여러 가능한 CSS 셀렉터 시도
                 selectors = ['.css-bbw3a7', '[data-testid="index-value"]', 'div[class*="css-"]']
 
                 for selector in selectors:
                     try:
-                        page.wait_for_selector(selector, timeout=10000)
+                        page.wait_for_selector(selector, timeout=MarketIndexConfig.TIMEOUT_UPBIT_WAIT_SELECTOR * 1000)
                         break
                     except:
                         continue
 
-                # Extract index data using JavaScript
+                # Extract index data + USD/KRW using JavaScript
                 indices_data = page.evaluate('''() => {
                     const result = {};
 
@@ -182,6 +245,26 @@ class MarketIndexService:
                         };
                     };
 
+                    // USD/KRW 전용 파싱 함수 (연속된 3줄에서 추출)
+                    const parseUsdKrw = (lines, startIdx) => {
+                        // 형식: "미국 (USD/KRW)" 다음 2줄 건너뛰고 3개 연속 값
+                        // 예: 1,417.20 / 5.30 / 0.37%
+                        try {
+                            const value = parseFloat(lines[startIdx + 2].replace(/,/g, ''));
+                            const change = parseFloat(lines[startIdx + 3].replace(/,/g, ''));
+                            const changeRateStr = lines[startIdx + 4];
+                            const changeRate = parseFloat(changeRateStr.replace(/%/g, ''));
+
+                            return {
+                                value: value || 0,
+                                change: change || 0,
+                                change_rate: changeRate || 0
+                            };
+                        } catch (e) {
+                            return { value: 0, change: 0, change_rate: 0 };
+                        }
+                    };
+
                     // Find all text containing index names
                     const allText = document.body.innerText;
                     const lines = allText.split('\\n');
@@ -191,7 +274,6 @@ class MarketIndexService:
                         const line = lines[i];
 
                         if (line.includes('업비트 종합 지수')) {
-                            // Next few lines should have the value
                             const combined = lines.slice(i, i + 5).join(' ');
                             result.ubci = parseIndexText(combined);
                         } else if (line.includes('업비트 알트코인 지수')) {
@@ -203,6 +285,9 @@ class MarketIndexService:
                         } else if (line === '업비트 30' || line.includes('업비트 30')) {
                             const combined = lines.slice(i, i + 5).join(' ');
                             result.ub30 = parseIndexText(combined);
+                        } else if (line.includes('미국 (USD/KRW)')) {
+                            // USD/KRW 환율 추출 (전용 파서 사용)
+                            result.usd_krw = parseUsdKrw(lines, i);
                         }
                     }
 
@@ -219,8 +304,15 @@ class MarketIndexService:
                     else:
                         result[key] = {'value': 0.0, 'change': 0.0, 'change_rate': 0.0}
 
+                # USD/KRW 환율 추가
+                if 'usd_krw' in indices_data and indices_data['usd_krw']['value'] > 0:
+                    result['usd_krw'] = indices_data['usd_krw']
+                    logger.info(f"USD/KRW 환율 추출 성공: {result['usd_krw']}")
+                else:
+                    result['usd_krw'] = {'value': 0.0, 'change': 0.0, 'change_rate': 0.0}
+
                 if any(result[k]['value'] > 0 for k in ['ubci', 'ubmi', 'ub10', 'ub30']):
-                    logger.info("업비트 지수 웹 스크래핑 성공")
+                    logger.info("업비트 지수 + USD/KRW 웹 스크래핑 성공")
                     return result
                 else:
                     logger.warning("업비트 지수 데이터를 추출할 수 없습니다.")
@@ -243,8 +335,8 @@ class MarketIndexService:
             page = browser.new_page()
             try:
                 # 업비트 데이터랩 페이지로 변경
-                page.goto("https://datalab.upbit.com/", timeout=30000)
-                page.wait_for_load_state('networkidle', timeout=30000)
+                page.goto("https://datalab.upbit.com/", timeout=MarketIndexConfig.TIMEOUT_UPBIT_SCRAPING * 1000)
+                page.wait_for_load_state('domcontentloaded', timeout=MarketIndexConfig.TIMEOUT_UPBIT_WAIT_LOAD * 1000)
 
                 # 전체 텍스트 추출
                 text = page.evaluate('() => document.body.innerText')
@@ -352,8 +444,8 @@ class MarketIndexService:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
             try:
-                page.goto("https://datalab.upbit.com/", timeout=30000)
-                page.wait_for_load_state('networkidle', timeout=30000)
+                page.goto("https://datalab.upbit.com/", timeout=MarketIndexConfig.TIMEOUT_UPBIT_SCRAPING * 1000)
+                page.wait_for_load_state('domcontentloaded', timeout=MarketIndexConfig.TIMEOUT_UPBIT_WAIT_LOAD * 1000)
 
                 # HTML 전체 가져오기
                 html = page.content()
@@ -450,68 +542,177 @@ class MarketIndexService:
 
     def get_usd_krw_rate(self) -> Dict[str, float]:
         """
-        USD/KRW 환율 가져오기 (2일 전 대비 변동률)
-        무료 환율 API 사용 (실제 USD/KRW)
+        USD/KRW 환율 가져오기
 
-        Note: 무료 API는 일일 업데이트만 지원하므로 2일 전 데이터와 비교
+        우선순위:
+        1. Upbit 웹스크래핑 (업비트 지수와 함께 수집, 가장 빠름)
+        2. FxRatesAPI (실시간, API 키 필요, 1000 requests/month 무료)
+        3. Currency API (일일 업데이트만 지원, 최종 fallback)
 
         Returns:
             {'value': 환율, 'change': 변동값, 'change_rate': 변동률(%)}
         """
+        # 우선순위 1: Upbit 스크래핑에서 이미 가져온 경우 (캐싱된 데이터 사용 안함, 항상 새로 조회)
+        # 이 메서드는 독립적으로 호출되므로 항상 최신 데이터를 가져옵니다.
+
+        # Fallback 1: FxRatesAPI 사용 (실시간 업데이트)
         try:
-            # Currency API - 무료, 일일 업데이트, 실제 환율
-            today_url = "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usd.json"
+            if self.fxrates_api_key:
+                result = self._get_usd_krw_from_fxrates()
+                if result and result.get('value', 0) > 0:
+                    logger.info(f"USD/KRW 환율 (FxRatesAPI): {result['value']:,.2f} (변동률: {result['change_rate']:+.2f}%)")
+                    return result
+                else:
+                    logger.warning("FxRatesAPI 응답 데이터가 유효하지 않음, fallback으로 전환")
+        except Exception as e:
+            logger.warning(f"FxRatesAPI 호출 실패: {e}, fallback으로 전환")
 
-            response = self.session.get(today_url, timeout=10)
-            response.raise_for_status()
-            today_data = response.json()
+        # Fallback 2: Currency API (일일 업데이트, 2일 전 대비)
+        try:
+            result = self._get_usd_krw_from_currency_api()
+            logger.info(f"USD/KRW 환율 (Currency API fallback): {result['value']:,.2f} (2일 전 대비: {result['change_rate']:+.2f}%)")
+            return result
+        except Exception as e:
+            logger.error(f"모든 USD/KRW API 호출 실패: {e}")
+            return {'value': 0.0, 'change': 0.0, 'change_rate': 0.0}
 
-            current_rate = float(today_data['usd']['krw'])
+    def _get_usd_krw_from_fxrates(self) -> Dict[str, float]:
+        """
+        FxRatesAPI를 사용한 USD/KRW 환율 조회 (실시간)
 
-            # 2일 전 날짜로 과거 데이터 가져오기 (더 명확한 변동 표시)
-            try:
-                two_days_ago = (datetime.now() - timedelta(days=2)).strftime('%Y-%m-%d')
-                historical_url = f"https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@{two_days_ago}/v1/currencies/usd.json"
+        Rate Limit: 무료 플랜 1000 requests/month
+        업데이트 권장 주기: 1시간 (월 720회) 또는 30분 (월 1440회, 유료 필요)
+        """
+        # Rate limiting 체크 (1시간에 1회로 제한)
+        if self._last_fxrates_call:
+            elapsed = time.time() - self._last_fxrates_call
+            min_interval = 3600  # 1시간 = 3600초
+            if elapsed < min_interval:
+                remaining = min_interval - elapsed
+                logger.debug(f"FxRatesAPI rate limit: {remaining/60:.1f}분 남음")
+                raise Exception(f"Rate limit: {remaining/60:.1f}분 후 재시도")
 
-                hist_response = self.session.get(historical_url, timeout=10)
-                hist_response.raise_for_status()
-                historical_data = hist_response.json()
+        # 현재 환율 조회
+        params = {
+            'api_key': self.fxrates_api_key,
+            'base': 'USD',
+            'currencies': 'KRW'
+        }
 
-                previous_rate = float(historical_data['usd']['krw'])
+        response = self.session.get(
+            self.FXRATES_API_BASE_URL,
+            params=params,
+            timeout=MarketIndexConfig.TIMEOUT_CURRENCY_API
+        )
+        response.raise_for_status()
 
-                # 2일 전 대비 변동
+        self._last_fxrates_call = time.time()
+
+        data = response.json()
+
+        # 응답 형식: {"success": true, "base": "USD", "date": "2025-01-01", "rates": {"KRW": 1234.56}}
+        if not data.get('success', False):
+            raise Exception(f"FxRatesAPI 오류: {data.get('error', {})}")
+
+        current_rate = float(data['rates']['KRW'])
+
+        # 전일 환율 조회 (변동률 계산용)
+        try:
+            yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y-%m-%d')
+            hist_params = {
+                'api_key': self.fxrates_api_key,
+                'base': 'USD',
+                'currencies': 'KRW',
+                'date': yesterday
+            }
+
+            hist_response = self.session.get(
+                self.FXRATES_API_BASE_URL,
+                params=hist_params,
+                timeout=MarketIndexConfig.TIMEOUT_CURRENCY_API
+            )
+            hist_response.raise_for_status()
+            hist_data = hist_response.json()
+
+            if hist_data.get('success', False):
+                previous_rate = float(hist_data['rates']['KRW'])
                 change = current_rate - previous_rate
                 change_rate = (change / previous_rate) * 100
-
-                logger.info(f"USD/KRW 환율: {current_rate:,.2f} (2일 전 대비: {change_rate:+.2f}%)")
 
                 return {
                     'value': current_rate,
                     'change': change,
                     'change_rate': change_rate
                 }
+        except Exception as hist_error:
+            logger.warning(f"FxRatesAPI 전일 환율 조회 실패: {hist_error}")
 
-            except Exception as hist_error:
-                logger.warning(f"과거 환율 데이터 가져오기 실패: {hist_error}, 변동률 0으로 표시")
-                return {
-                    'value': current_rate,
-                    'change': 0.0,
-                    'change_rate': 0.0
-                }
+        # 전일 환율 조회 실패 시 변동률 0
+        return {
+            'value': current_rate,
+            'change': 0.0,
+            'change_rate': 0.0
+        }
 
-        except Exception as e:
-            logger.error(f"USD/KRW 환율 가져오기 실패: {e}")
-            return {'value': 0.0, 'change': 0.0, 'change_rate': 0.0}
+    def _get_usd_krw_from_currency_api(self) -> Dict[str, float]:
+        """
+        Currency API를 사용한 USD/KRW 환율 조회 (fallback, 일일 업데이트)
+        """
+        response = self.session.get(self.CURRENCY_API_BASE_URL, timeout=MarketIndexConfig.TIMEOUT_CURRENCY_API)
+        response.raise_for_status()
+        today_data = response.json()
+
+        current_rate = float(today_data['usd']['krw'])
+
+        # 2일 전 날짜로 과거 데이터 가져오기
+        try:
+            two_days_ago = (datetime.now() - timedelta(days=2)).strftime('%Y-%m-%d')
+            historical_url = f"https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@{two_days_ago}/v1/currencies/usd.json"
+
+            hist_response = self.session.get(historical_url, timeout=MarketIndexConfig.TIMEOUT_CURRENCY_API)
+            hist_response.raise_for_status()
+            historical_data = hist_response.json()
+
+            previous_rate = float(historical_data['usd']['krw'])
+
+            change = current_rate - previous_rate
+            change_rate = (change / previous_rate) * 100
+
+            return {
+                'value': current_rate,
+                'change': change,
+                'change_rate': change_rate
+            }
+
+        except Exception as hist_error:
+            logger.warning(f"Currency API 과거 환율 조회 실패: {hist_error}")
+            return {
+                'value': current_rate,
+                'change': 0.0,
+                'change_rate': 0.0
+            }
     
     # ===== 글로벌 지수 (CoinGecko API) =====
     
     def get_global_crypto_data(self) -> Dict[str, any]:
         """
         CoinGecko API를 통한 글로벌 암호화폐 시장 데이터
+        Rate limiting: 최소 2초 간격
         """
         try:
-            response = self.session.get(self.COINGECKO_GLOBAL_URL, timeout=10)
+            # Rate limiting 체크
+            if self._last_coingecko_call:
+                elapsed = time.time() - self._last_coingecko_call
+                min_interval = MarketIndexConfig.INTERNAL_MIN_INTERVAL_COINGECKO / 1000  # 밀리초 → 초 변환 (2.4초)
+                if elapsed < min_interval:
+                    wait_time = min_interval - elapsed
+                    logger.info(f"CoinGecko API rate limit: {wait_time:.1f}초 대기")
+                    time.sleep(wait_time)
+            
+            response = self.session.get(self.COINGECKO_GLOBAL_URL, timeout=MarketIndexConfig.TIMEOUT_COINGECKO_API)
             response.raise_for_status()
+            
+            self._last_coingecko_call = time.time()
             
             data = response.json()['data']
             
@@ -560,14 +761,17 @@ class MarketIndexService:
     ) -> List[Dict[str, any]]:
         """
         상위 코인 데이터와 7일 sparkline 가져오기
+        Rate limiting: 최소 60초 간격
         """
         try:
-            import time
-            
+            # Rate limiting 체크 (CoinGecko API 공유)
             if self._last_coingecko_call:
                 elapsed = time.time() - self._last_coingecko_call
-                if elapsed < 0.02:
-                    time.sleep(0.02 - elapsed)
+                min_interval = MarketIndexConfig.INTERNAL_MIN_INTERVAL_COINGECKO / 1000  # 밀리초 → 초 변환 (2.4초)
+                if elapsed < min_interval:
+                    wait_time = min_interval - elapsed
+                    logger.info(f"CoinGecko Markets API rate limit: {wait_time:.1f}초 대기")
+                    time.sleep(wait_time)
             
             params = {
                 'vs_currency': vs_currency,
@@ -581,7 +785,7 @@ class MarketIndexService:
             response = self.session.get(
                 self.COINGECKO_MARKETS_URL, 
                 params=params,
-                timeout=15
+                timeout=MarketIndexConfig.TIMEOUT_COINGECKO_MARKETS
             )
             response.raise_for_status()
             

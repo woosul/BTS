@@ -51,10 +51,6 @@ def get_services():
         st.session_state.strategy_service
     )
 
-# 전역 스타일 적용
-from presentation.styles.global_styles import apply_global_styles
-apply_global_styles()
-
 # 헤더
 st.title("BTS | Bitcoin Trading System")
 st.caption("KRW/BTC 시장에서의 종목선정에서부터 매수/매도 시스템 자동매매 시스템을 위한 트레이딩 전략 평가 플랫폼  |  UPBIT  |  BITTHUMB")

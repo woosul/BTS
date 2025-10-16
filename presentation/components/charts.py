@@ -77,7 +77,8 @@ def render_candlestick_chart(
             increasing_line_color="#EF5350",  # 양봉 (상승) - 밝은 빨강
             increasing_fillcolor="#EF5350",
             decreasing_line_color="#42A5F5",  # 음봉 (하락) - 밝은 파랑
-            decreasing_fillcolor="#42A5F5"
+            decreasing_fillcolor="#42A5F5",
+            line=dict(width=1)  # 심지(wick) 두께 1px
         ),
         row=1,
         col=1

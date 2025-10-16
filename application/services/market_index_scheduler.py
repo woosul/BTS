@@ -6,11 +6,16 @@ BTS 마켓 인덱스 스케줄러
 import asyncio
 import threading
 import time
+import json
 from datetime import datetime
-from typing import Set
+from typing import Set, Any
 import websockets
 
-from application.services.cached_market_index_service import CachedMarketIndexService
+from application.services.market_index_service import MarketIndexService
+from infrastructure.repositories.market_index_repository import MarketIndexRepository
+from infrastructure.database.connection import engine  # 전역 엔진 사용
+from sqlalchemy.orm import sessionmaker
+from domain.entities.market_index import MarketIndex
 from config.market_index_config import MarketIndexConfig
 from utils.logger import get_logger
 
@@ -24,16 +29,23 @@ class MarketIndexScheduler:
     기능:
     1. 설정된 주기마다 자동으로 지수 업데이트
     2. 업데이트 완료 시 WebSocket으로 클라이언트에 알림
+    3. 연결 끊김 감지 및 자동 재연결
+    4. 클라이언트 상태 관리
     """
 
     def __init__(self):
-        self.service = CachedMarketIndexService()
+        self.service = MarketIndexService()  # 캐싱 제거된 기본 서비스 사용
         self.config = MarketIndexConfig()
         self.running = False
         self.update_thread = None
         self.websocket_thread = None
         self.websocket_loop = None  # WebSocket 이벤트 루프 참조
-        self.connected_clients: Set[websockets.WebSocketServerProtocol] = set()
+        self.connected_clients: Set[Any] = set()  # WebSocket 클라이언트 집합
+        self.websocket_server = None
+        self.last_update_time = None
+        self.health_check_interval = 30  # 30초마다 헬스체크
+        self.client_info = {}  # 클라이언트별 정보 저장
+        self.min_update_interval = self.config.SYSTEM_MIN_UPDATE_INTERVAL  # 시스템 최소 업데이트 간격
 
     # ===== 스케줄러 =====
 
@@ -49,69 +61,315 @@ class MarketIndexScheduler:
             return data
 
     def update_all_indices(self):
-        """모든 지수 업데이트"""
+        """모든 지수 업데이트 (개선된 버전)"""
         try:
-            logger.info(f"[스케줄러] 지수 업데이트 시작 ({datetime.now()})")
-            self.service.force_update_all()
-            logger.info("[스케줄러] 지수 업데이트 완료")
+            update_start_time = datetime.now()
+            logger.info(f"[스케줄러] 지수 업데이트 시작 ({update_start_time})")
+            
+            # 캐싱 없이 직접 데이터 수집 및 DB 저장
+            self._collect_and_save_all_data()
+            
+            # 업데이트 시간 기록
+            self.last_update_time = datetime.now()
+            update_duration = (self.last_update_time - update_start_time).total_seconds()
+            logger.info(f"[스케줄러] 지수 업데이트 완료 (소요시간: {update_duration:.2f}초)")
 
-            # 업데이트된 데이터 조회
-            upbit_data = self.service.get_upbit_indices_cached()
-            usd_data = self.service.get_usd_krw_cached()
-            global_data = self.service.get_global_crypto_data_cached()
+            # DB에서 최신 데이터 조회 (캐싱 제거)
+            upbit_data = self._get_upbit_data_from_db()
+            usd_data = self._get_usd_krw_data_from_db()
+            global_data = self._get_global_data_from_db()
+            coingecko_data = self._get_coingecko_data_from_db()
 
             # datetime 객체 직렬화
             upbit_data = self._serialize_data(upbit_data)
             usd_data = self._serialize_data(usd_data)
             global_data = self._serialize_data(global_data)
+            coingecko_data = self._serialize_data(coingecko_data)
 
             # JSON 메시지 구성
-            import json
             message_data = {
                 "type": "indices_updated",
-                "timestamp": datetime.now().isoformat(),
+                "timestamp": self.last_update_time.isoformat(),
+                "update_duration": update_duration,
                 "data": {
                     "upbit": upbit_data,
                     "usd_krw": usd_data,
-                    "global": global_data
+                    "global": global_data,
+                    "coingecko_top_coins": coingecko_data
                 }
             }
             message_json = json.dumps(message_data, ensure_ascii=False)
 
             # WebSocket 클라이언트에 데이터 전송
-            logger.info(f"[스케줄러] WebSocket 상태 - loop:{self.websocket_loop is not None}, clients:{len(self.connected_clients)}")
-            if self.websocket_loop and not self.websocket_loop.is_closed():
-                logger.info(f"[스케줄러] WebSocket 데이터 전송 시작 ({len(self.connected_clients)}명)")
-                future = asyncio.run_coroutine_threadsafe(
-                    self.notify_clients(message_json),
-                    self.websocket_loop
-                )
-                try:
-                    future.result(timeout=2)
-                    logger.info("[스케줄러] WebSocket 데이터 전송 완료")
-                except TimeoutError as e:
-                    logger.error(f"[스케줄러] WebSocket 전송 타임아웃 (2초): {e}")
-                except Exception as notify_error:
-                    logger.error(f"[스케줄러] WebSocket 전송 실패: {type(notify_error).__name__}: {notify_error}", exc_info=True)
-            else:
-                logger.warning("[스케줄러] WebSocket 이벤트 루프 없음 - 전송 스킵")
+            self._notify_clients_safe(message_json)
 
         except Exception as e:
-            logger.error(f"[스케줄러] 업데이트 실패: {e}")
+            logger.error(f"[스케줄러] 업데이트 실패: {e}", exc_info=True)
+
+    def _notify_clients_safe(self, message_json: str):
+        """안전한 클라이언트 알림 (논블로킹)"""
+        if not self.websocket_loop or self.websocket_loop.is_closed():
+            logger.warning("[스케줄러] WebSocket 이벤트 루프 없음 - 전송 스킵")
+            return
+            
+        if not self.connected_clients:
+            logger.debug("[스케줄러] 연결된 클라이언트 없음 - 전송 스킵")
+            return
+
+        logger.info(f"[스케줄러] WebSocket 데이터 전송 시작 ({len(self.connected_clients)}명)")
+        
+        try:
+            # 비동기 작업을 이벤트 루프에 예약 (논블로킹)
+            future = asyncio.run_coroutine_threadsafe(
+                self.notify_clients(message_json),
+                self.websocket_loop
+            )
+            
+            # 타임아웃 설정으로 블로킹 방지
+            future.result(timeout=3)
+            logger.info("[스케줄러] WebSocket 데이터 전송 완료")
+            
+        except asyncio.TimeoutError:
+            logger.warning("[스케줄러] WebSocket 전송 타임아웃 (3초)")
+        except Exception as notify_error:
+            logger.error(f"[스케줄러] WebSocket 전송 실패: {notify_error}", exc_info=True)
 
     def run_scheduler(self):
-        """스케줄러 메인 루프"""
-        logger.info(f"✓ 지수 자동 업데이트 스케줄러 시작 (주기: {self.config.get_update_interval_minutes()}분)")
+        """스케줄러 메인 루프 - 듀얼 스레드 데이터 수집 + WebSocket 전송"""
+        logger.info("✓ 듀얼 스레드 스케줄러 시작:")
+        logger.info(f"  - 업비트 지수 + USD/KRW: {MarketIndexConfig.UPDATE_INTERVAL_UPBIT_SCRAPING}초 간격 (실시간)")
+        logger.info(f"  - 글로벌 지수: {MarketIndexConfig.UPDATE_INTERVAL_COINGECKO}초 간격 (실시간)")
+        logger.info(f"  - WebSocket 전송: {MarketIndexConfig.WEBSOCKET_UPDATE_INTERVAL}초 간격")
 
-        # 시작 시 즉시 한 번 업데이트
-        self.update_all_indices()
+        # 백그라운드 데이터 업데이트 스레드 시작 (3개 독립 스레드)
+        self._start_background_data_updater()
+
+        # 시작 시 즉시 한 번 WebSocket 전송
+        self._send_websocket_update()
 
         while self.running:
-            # UserSettings에서 동적으로 간격 조회
-            interval_seconds = self.config.get_update_interval_seconds()
-            time.sleep(interval_seconds)
-            if self.running:  # 중단되지 않았으면 업데이트
-                self.update_all_indices()
+            # WebSocket 전송은 실시간성 우선으로 설정된 간격 사용
+            websocket_interval = MarketIndexConfig.WEBSOCKET_UPDATE_INTERVAL
+
+            logger.info(f"[WebSocket] 다음 업데이트까지 {websocket_interval}초 대기 (연결된 클라이언트: {len(self.connected_clients)}명)")
+            time.sleep(websocket_interval)
+
+            if self.running:  # 중단되지 않았으면 WebSocket 전송
+                self._send_websocket_update()
+
+    def _start_background_data_updater(self):
+        """
+        백그라운드 데이터 업데이트 스레드 시작
+
+        각 데이터 소스별로 독립적인 업데이트 주기를 가진 스레드 실행:
+        - 업비트 지수: 8초 (웹스크래핑, 실측 필요)
+        - 글로벌 지수: 8초 (CoinGecko API)
+        - USD/KRW 환율: 1시간 (FxRates API, 무료 플랜 제한)
+        """
+
+        def upbit_update_loop():
+            """업비트 지수 + USD/KRW 업데이트 루프 (동적 간격)"""
+            logger.info(f"[업비트 업데이터] 스레드 시작")
+
+            while self.running:
+                try:
+                    start_time = datetime.now()
+
+                    # 동적 간격 계산 (Dashboard 활성 여부에 따라)
+                    interval = self._get_update_interval_for_upbit()
+
+                    logger.info(f"[업비트 업데이터] 업비트 지수 + USD/KRW 수집 시작 (간격: {interval}초)")
+
+                    # 업비트 지수 수집 (USD/KRW 포함)
+                    data = self.service.get_upbit_indices()
+                    if self._validate_collected_data(data, "업비트 지수"):
+                        self._save_upbit_data(data)
+
+                        # USD/KRW가 포함되어 있으면 저장
+                        if 'usd_krw' in data and data['usd_krw'].get('value', 0) > 0:
+                            self._save_usd_krw_data(data['usd_krw'])
+                            logger.info(f"[업비트 업데이터] USD/KRW 함께 저장: {data['usd_krw']['value']:,.2f} ({data['usd_krw']['change_rate']:+.2f}%)")
+
+                    duration = (datetime.now() - start_time).total_seconds()
+                    logger.info(f"[업비트 업데이터] 완료 (소요시간: {duration:.2f}초)")
+
+                    # 설정된 간격만큼 대기
+                    time.sleep(max(interval - duration, 1))  # 최소 1초 대기
+
+                except Exception as e:
+                    logger.error(f"[업비트 업데이터] 실패: {e}", exc_info=True)
+                    time.sleep(5)  # 에러 시 5초 후 재시도
+
+        def global_update_loop():
+            """글로벌 지수 업데이트 루프 (동적 간격)"""
+            logger.info(f"[글로벌 업데이터] 스레드 시작")
+
+            while self.running:
+                try:
+                    start_time = datetime.now()
+
+                    # 동적 간격 계산 (Dashboard 활성 여부에 따라)
+                    interval = self._get_update_interval_for_global()
+
+                    logger.info(f"[글로벌 업데이터] 글로벌 지수 수집 시작 (간격: {interval}초)")
+
+                    # 글로벌 지수 수집 및 저장
+                    data = self.service.get_global_crypto_data()
+                    if self._validate_collected_data(data, "글로벌 데이터"):
+                        self._save_global_data(data)
+
+                    # 코인게코 상위 코인 수집 및 저장
+                    coin_data = self.service.get_top_coins_with_sparkline(limit=10)
+                    if self._validate_collected_data(coin_data, "코인게코 데이터"):
+                        self._save_coingecko_data(coin_data)
+
+                    duration = (datetime.now() - start_time).total_seconds()
+                    logger.info(f"[글로벌 업데이터] 완료 (소요시간: {duration:.2f}초)")
+
+                    # 설정된 간격만큼 대기
+                    time.sleep(max(interval - duration, 1))
+
+                except Exception as e:
+                    logger.error(f"[글로벌 업데이터] 실패: {e}", exc_info=True)
+                    time.sleep(5)
+
+        # 각 데이터 소스별 독립 스레드 시작 (USD/KRW는 Upbit과 함께 수집)
+        threads = [
+            threading.Thread(target=upbit_update_loop, daemon=True, name="UpbitUpdater"),
+            threading.Thread(target=global_update_loop, daemon=True, name="GlobalUpdater")
+        ]
+
+        for thread in threads:
+            thread.start()
+
+        logger.info("[SCHEDULER] 듀얼 스레드 데이터 수집 시스템 시작됨:")
+        logger.info(f"  - 업비트 지수 + USD/KRW: {MarketIndexConfig.UPDATE_INTERVAL_UPBIT_SCRAPING}초")
+        logger.info(f"  - 글로벌 지수: {MarketIndexConfig.UPDATE_INTERVAL_COINGECKO}초")
+        logger.info(f"  - WebSocket 전송: {MarketIndexConfig.WEBSOCKET_UPDATE_INTERVAL}초")
+
+    def _send_websocket_update(self):
+        """WebSocket 클라이언트에게 최신 데이터 전송"""
+        try:
+            # DB에서 직접 최신 데이터 조회
+            upbit_data = self._get_upbit_data_from_db()
+            usd_data = self._get_usd_krw_data_from_db()
+            global_data = self._get_global_data_from_db()
+            coingecko_data = self._get_coingecko_data_from_db()
+
+            # datetime 객체 직렬화
+            upbit_data = self._serialize_data(upbit_data)
+            usd_data = self._serialize_data(usd_data)
+            global_data = self._serialize_data(global_data)
+            coingecko_data = self._serialize_data(coingecko_data)
+
+            # 메시지 구성
+            message = {
+                'type': 'indices_updated',
+                'timestamp': datetime.now().isoformat(),
+                'data': {
+                    'upbit': upbit_data,
+                    'usd_krw': usd_data,
+                    'global': global_data,
+                    'coingecko_top_coins': coingecko_data
+                }
+            }
+
+            # WebSocket 전송
+            message_json = json.dumps(message, ensure_ascii=False, default=str)
+            self._notify_clients_safe(message_json)
+            
+        except Exception as e:
+            logger.error(f"[SCHEDULER] WebSocket 업데이트 실패: {e}", exc_info=True)
+
+    def _is_dashboard_active(self) -> bool:
+        """Dashboard가 활성화되어 있는지 확인"""
+        dashboard_clients = [info for ws, info in self.client_info.items()
+                           if info.get('page') == 'dashboard' and ws in self.connected_clients]
+        return len(dashboard_clients) > 0
+
+    def _get_background_interval(self) -> int:
+        """백그라운드 모드 업데이트 간격 (UserSettings에서 가져오기)"""
+        try:
+            from infrastructure.repositories.user_settings_repository import UserSettingsRepository
+            from domain.entities.user_settings import UserSettings
+
+            settings_repo = UserSettingsRepository()
+            general_setting = settings_repo.get_by_key(UserSettings.GENERAL_UPDATE_INTERVAL)
+
+            if general_setting:
+                return int(general_setting.setting_value)
+            else:
+                return self.config.DEFAULT_BACKGROUND_UPDATE_INTERVAL
+
+        except Exception as e:
+            logger.error(f"백그라운드 간격 조회 실패: {e}")
+            return self.config.DEFAULT_BACKGROUND_UPDATE_INTERVAL
+
+    def _get_update_interval_for_upbit(self) -> int:
+        """업비트 업데이트 간격 (Dashboard 활성 여부에 따라)"""
+        if self._is_dashboard_active():
+            return MarketIndexConfig.UPDATE_INTERVAL_UPBIT_SCRAPING  # 빠른 모드: 5초
+        else:
+            return self._get_background_interval()  # 느린 모드: 사용자 설정값
+
+    def _get_update_interval_for_global(self) -> int:
+        """글로벌 업데이트 간격 (Dashboard 활성 여부에 따라)"""
+        if self._is_dashboard_active():
+            return MarketIndexConfig.UPDATE_INTERVAL_COINGECKO  # 빠른 모드: 6초
+        else:
+            return self._get_background_interval()  # 느린 모드: 사용자 설정값
+
+    def _get_dynamic_update_interval(self) -> int:
+        """동적 업데이트 간격 계산 (하위 호환성 유지)"""
+        try:
+            from infrastructure.repositories.user_settings_repository import UserSettingsRepository
+            from domain.entities.user_settings import UserSettings
+
+            settings_repo = UserSettingsRepository()
+
+            # 대시보드에 연결된 클라이언트들의 요청 간격 수집
+            dashboard_clients = [info for ws, info in self.client_info.items()
+                               if info.get('page') == 'dashboard' and ws in self.connected_clients]
+
+            if len(dashboard_clients) > 0:
+                # 대시보드 클라이언트들의 요청 간격 중 최소값 찾기
+                requested_intervals = []
+
+                for client_info in dashboard_clients:
+                    interval = client_info.get('requested_interval', 0)
+                    if interval > 0:
+                        requested_intervals.append(interval)
+
+                # 요청된 간격이 있으면 최소값 사용, 없으면 설정값 사용
+                if requested_intervals:
+                    min_requested = min(requested_intervals)
+                    # rate limit 고려하여 최소값 적용
+                    actual_interval = max(min_requested, self.min_update_interval)
+                    logger.info(f"[SCHEDULER] 대시보드 활성 모드: 요청간격들 {requested_intervals}초 중 최소 {min_requested}초, 실제 적용 {actual_interval}초 (최소한계 {self.min_update_interval}초)")
+                    return actual_interval
+                else:
+                    # 요청 간격이 없으면 설정에서 가져오기
+                    dashboard_setting = settings_repo.get_by_key(UserSettings.DASHBOARD_REFRESH_INTERVAL)
+                    if dashboard_setting and int(dashboard_setting.setting_value) > 0:
+                        dashboard_interval = max(int(dashboard_setting.setting_value), self.min_update_interval)
+                        logger.info(f"[SCHEDULER] 대시보드 활성 모드: 설정값 {dashboard_interval}초 간격")
+                        return dashboard_interval
+
+            # 일반 업데이트 간격 사용
+            general_setting = settings_repo.get_by_key(UserSettings.GENERAL_UPDATE_INTERVAL)
+            if general_setting:
+                general_interval = max(int(general_setting.setting_value), self.min_update_interval)
+                logger.info(f"[SCHEDULER] 백그라운드 모드: {general_interval}초 간격")
+                return general_interval
+
+            # 기본값 (최소값 보장)
+            default_interval = max(self.config.DEFAULT_UPDATE_INTERVAL_SECONDS, self.min_update_interval)
+            logger.info(f"[SCHEDULER] 기본값 사용: {default_interval}초 간격")
+            return default_interval
+
+        except Exception as e:
+            logger.error(f"동적 간격 계산 실패: {e}")
+            return max(self.config.DEFAULT_UPDATE_INTERVAL_SECONDS, self.min_update_interval)
 
     def start_scheduler(self):
         """스케줄러 시작"""
@@ -125,74 +383,178 @@ class MarketIndexScheduler:
 
     # ===== WebSocket 서버 =====
 
-    async def handle_client(self, websocket):
+    async def handle_client(self, websocket, path=None):
         """WebSocket 클라이언트 연결 처리"""
+        _ = path  # unused parameter
+        client_address = getattr(websocket, 'remote_address', 'unknown')
         self.connected_clients.add(websocket)
-        logger.info(f"WebSocket 클라이언트 연결: {websocket.remote_address}")
+        logger.info(f"✓ WebSocket 클라이언트 연결: {client_address} (총 {len(self.connected_clients)}명)")
 
         try:
-            # 연결 유지 (클라이언트로부터 메시지 대기)
+            # 연결 즉시 최신 데이터 전송
+            await self.send_latest_data_to_client(websocket)
+            
+            # 클라이언트로부터 메시지 대기 (연결 유지)
             async for message in websocket:
-                logger.debug(f"WebSocket 메시지 수신: {message}")
+                logger.debug(f"WebSocket 메시지 수신 [{client_address}]: {message}")
+                
                 if message == "ping":
                     await websocket.send("pong")
-                    logger.debug("WebSocket pong 전송 완료")
+                    logger.debug(f"WebSocket pong 전송 완료 [{client_address}]")
+                elif message == "get_latest":
+                    # 클라이언트 요청 시 최신 데이터 전송
+                    await self.send_latest_data_to_client(websocket)
+                else:
+                    # JSON 메시지 처리
+                    try:
+                        data = json.loads(message)
+                        if data.get('type') == 'client_info':
+                            # 클라이언트 정보 저장
+                            self.client_info[websocket] = {
+                                'page': data.get('page'),
+                                'timestamp': data.get('timestamp'),
+                                'address': client_address,
+                                'requested_interval': data.get('requested_interval', 0)  # 클라이언트가 요청한 간격
+                            }
+                            logger.info(f"클라이언트 정보 등록 [{client_address}]: {data.get('page')} 페이지, 요청 간격: {data.get('requested_interval', 0)}초")
+                    except json.JSONDecodeError:
+                        logger.warning(f"JSON 파싱 실패 [{client_address}]: {message}")
+                    except Exception as e:
+                        logger.error(f"메시지 처리 오류 [{client_address}]: {e}")
+                    
         except websockets.exceptions.ConnectionClosedError as e:
-            logger.warning(f"WebSocket 연결 비정상 종료: {e}")
-        except websockets.exceptions.ConnectionClosed:
-            logger.info("WebSocket 연결 정상 종료")
+            logger.warning(f"WebSocket 연결 비정상 종료 [{client_address}]: {e}")
+        except websockets.exceptions.ConnectionClosedOK:
+            logger.info(f"WebSocket 연결 정상 종료 [{client_address}]")
         except Exception as e:
-            logger.error(f"WebSocket 처리 중 오류: {e}")
+            logger.error(f"WebSocket 처리 중 오류 [{client_address}]: {e}", exc_info=True)
         finally:
+            # 연결 해제 처리
             if websocket in self.connected_clients:
                 self.connected_clients.remove(websocket)
-            logger.info(f"WebSocket 클라이언트 연결 해제: {websocket.remote_address}")
+            if websocket in self.client_info:
+                del self.client_info[websocket]
+            logger.info(f"WebSocket 클라이언트 연결 해제: {client_address} (남은 {len(self.connected_clients)}명)")
+
+    async def send_latest_data_to_client(self, websocket):
+        """특정 클라이언트에 최신 데이터 전송"""
+        try:
+            # DB에서 직접 최신 데이터 조회
+            upbit_data = self._get_upbit_data_from_db()
+            usd_data = self._get_usd_krw_data_from_db()
+            global_data = self._get_global_data_from_db()
+            coingecko_data = self._get_coingecko_data_from_db()
+
+            # datetime 객체 직렬화
+            upbit_data = self._serialize_data(upbit_data)
+            usd_data = self._serialize_data(usd_data)
+            global_data = self._serialize_data(global_data)
+            coingecko_data = self._serialize_data(coingecko_data)
+
+            # JSON 메시지 구성
+            message_data = {
+                "type": "indices_updated",
+                "timestamp": datetime.now().isoformat(),
+                "data": {
+                    "upbit": upbit_data,
+                    "usd_krw": usd_data,
+                    "global": global_data,
+                    "coingecko_top_coins": coingecko_data
+                }
+            }
+            message_json = json.dumps(message_data, ensure_ascii=False)
+            
+            await websocket.send(message_json)
+            logger.debug(f"최신 데이터 전송 완료 [{getattr(websocket, 'remote_address', 'unknown')}]")
+            
+        except Exception as e:
+            logger.error(f"최신 데이터 전송 실패: {e}")
 
     async def notify_clients(self, message: str):
-        """연결된 모든 클라이언트에 알림"""
+        """연결된 모든 클라이언트에 알림 (개선된 버전)"""
         if not self.connected_clients:
-            logger.warning(f"WebSocket 알림 스킵: 연결된 클라이언트 없음 (message={message})")
+            logger.debug("WebSocket 알림 스킵: 연결된 클라이언트 없음")
             return
 
-        logger.info(f"WebSocket 알림 전송: {message} ({len(self.connected_clients)}명)")
+        logger.info(f"WebSocket 알림 전송 시작 ({len(self.connected_clients)}명)")
+        
+        # 끊어진 연결 감지를 위한 리스트
+        disconnected_clients = []
+        successful_sends = 0
 
-        # 모든 클라이언트에 메시지 전송
-        results = await asyncio.gather(
-            *[client.send(message) for client in self.connected_clients],
-            return_exceptions=True
-        )
+        # 각 클라이언트에 개별적으로 전송
+        for websocket in list(self.connected_clients):  # 복사본으로 순회
+            try:
+                await websocket.send(message)
+                successful_sends += 1
+            except websockets.exceptions.ConnectionClosed:
+                disconnected_clients.append(websocket)
+                logger.warning(f"연결 끊긴 클라이언트 감지: {getattr(websocket, 'remote_address', 'unknown')}")
+            except Exception as e:
+                disconnected_clients.append(websocket)
+                logger.error(f"클라이언트 전송 실패: {e}")
 
-        # 전송 결과 로깅
-        errors = [r for r in results if isinstance(r, Exception)]
-        if errors:
-            logger.error(f"WebSocket 알림 전송 중 {len(errors)}개 오류: {errors}")
-        else:
-            logger.info(f"WebSocket 알림 전송 완료 ({len(results)}명)")
+        # 끊어진 연결 정리
+        for websocket in disconnected_clients:
+            if websocket in self.connected_clients:
+                self.connected_clients.remove(websocket)
+
+        if disconnected_clients:
+            logger.info(f"끊어진 연결 {len(disconnected_clients)}개 정리 완료")
+        
+        logger.info(f"WebSocket 알림 전송 완료 ({successful_sends}/{len(self.connected_clients) + len(disconnected_clients)})")
 
     async def start_websocket_server(self):
-        """WebSocket 서버 시작"""
+        """WebSocket 서버 시작 (개선된 버전)"""
         try:
-            server = await websockets.serve(
+            # 서버 시작 시 ping interval 설정으로 연결 안정성 향상
+            self.websocket_server = await websockets.serve(
                 self.handle_client,
                 self.config.WEBSOCKET_HOST,
-                self.config.WEBSOCKET_PORT
+                self.config.WEBSOCKET_PORT,
+                ping_interval=20,  # 20초마다 ping
+                ping_timeout=10,   # ping 응답 대기 시간 10초
+                close_timeout=10   # 종료 대기 시간 10초
             )
             logger.info(f"✓ WebSocket 서버 시작: {self.config.get_websocket_url()}")
-            await server.wait_closed()
+            logger.info("  - ping 간격: 20초, timeout: 10초")
+            
+            # 서버 종료까지 대기
+            await self.websocket_server.wait_closed()
+            
         except Exception as e:
-            logger.error(f"WebSocket 서버 오류: {e}")
+            logger.error(f"WebSocket 서버 오류: {e}", exc_info=True)
+        finally:
+            logger.info("WebSocket 서버 종료됨")
 
     def run_websocket_server(self):
         """WebSocket 서버 실행 (별도 스레드)"""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        self.websocket_loop = loop  # 이벤트 루프 참조 저장
-        loop.run_until_complete(self.start_websocket_server())
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            self.websocket_loop = loop  # 이벤트 루프 참조 저장
+            logger.info("WebSocket 이벤트 루프 초기화 완료")
+            
+            loop.run_until_complete(self.start_websocket_server())
+            
+        except Exception as e:
+            logger.error(f"WebSocket 서버 스레드 오류: {e}", exc_info=True)
+        finally:
+            logger.info("WebSocket 서버 스레드 종료")
 
     def start_websocket(self):
         """WebSocket 서버 시작"""
-        self.websocket_thread = threading.Thread(target=self.run_websocket_server, daemon=True)
+        if self.websocket_thread and self.websocket_thread.is_alive():
+            logger.warning("WebSocket 서버가 이미 실행 중입니다")
+            return
+            
+        self.websocket_thread = threading.Thread(
+            target=self.run_websocket_server, 
+            daemon=True,
+            name="WebSocketServer"
+        )
         self.websocket_thread.start()
+        logger.info("WebSocket 서버 스레드 시작됨")
 
     # ===== 제어 =====
 
@@ -204,23 +566,510 @@ class MarketIndexScheduler:
         logger.info("=== 시작 완료 ===")
 
     def stop(self):
-        """스케줄러 + WebSocket 서버 중지"""
-        logger.info("마켓 인덱스 백그라운드 시스템 중지 중...")
+        """스케줄러 + WebSocket 서버 중지 (개선된 버전)"""
+        logger.info("마켓 인덱스 백그라운드 시스템 중지 시작...")
+        
+        # 스케줄러 중지
         self.running = False
 
-        if self.update_thread:
+        # 업데이트 스레드 종료 대기
+        if self.update_thread and self.update_thread.is_alive():
+            logger.info("업데이트 스레드 종료 대기...")
             self.update_thread.join(timeout=5)
+            if self.update_thread.is_alive():
+                logger.warning("업데이트 스레드가 5초 내에 종료되지 않음")
 
-        logger.info("중지 완료")
+        # WebSocket 서버 종료
+        if self.websocket_server:
+            logger.info("WebSocket 서버 종료 중...")
+            try:
+                if self.websocket_loop and not self.websocket_loop.is_closed():
+                    future = asyncio.run_coroutine_threadsafe(
+                        self._close_websocket_server(),
+                        self.websocket_loop
+                    )
+                    future.result(timeout=3)
+            except Exception as e:
+                logger.error(f"WebSocket 서버 종료 중 오류: {e}")
+
+        # WebSocket 스레드 종료 대기
+        if self.websocket_thread and self.websocket_thread.is_alive():
+            logger.info("WebSocket 스레드 종료 대기...")
+            self.websocket_thread.join(timeout=3)
+            if self.websocket_thread.is_alive():
+                logger.warning("WebSocket 스레드가 3초 내에 종료되지 않음")
+
+        logger.info("마켓 인덱스 백그라운드 시스템 중지 완료")
+
+    async def _close_websocket_server(self):
+        """WebSocket 서버 안전 종료"""
+        if self.websocket_server:
+            self.websocket_server.close()
+            await self.websocket_server.wait_closed()
+            self.websocket_server = None
+            logger.info("WebSocket 서버 종료 완료")
 
     def get_status(self) -> dict:
-        """현재 상태 반환"""
+        """현재 상태 반환 (개선된 버전)"""
+        dashboard_clients = [info for info in self.client_info.values() if info.get('page') == 'dashboard']
+        
         return {
             'running': self.running,
             'update_interval_minutes': self.config.get_update_interval_minutes(),
             'websocket_url': self.config.get_websocket_url(),
-            'connected_clients': len(self.connected_clients)
+            'connected_clients': len(self.connected_clients),
+            'dashboard_clients': len(dashboard_clients),
+            'current_mode': 'dashboard' if len(dashboard_clients) > 0 else 'background',
+            'websocket_server_running': self.websocket_server is not None,
+            'websocket_loop_running': self.websocket_loop is not None and not self.websocket_loop.is_closed(),
+            'last_update_time': self.last_update_time.isoformat() if self.last_update_time else None,
+            'client_details': [
+                {
+                    'address': info.get('address', 'unknown'),
+                    'page': info.get('page', 'unknown'),
+                    'connected_at': info.get('timestamp')
+                }
+                for info in self.client_info.values()
+            ],
+            'threads': {
+                'update_thread_alive': self.update_thread is not None and self.update_thread.is_alive(),
+                'websocket_thread_alive': self.websocket_thread is not None and self.websocket_thread.is_alive()
+            }
         }
+
+    def _collect_and_save_all_data(self):
+        """모든 지수 데이터 수집 및 DB 저장 (단순화된 직접 호출 방식)"""
+        collection_start = datetime.now()
+        success_count = 0
+        total_count = 4
+        
+        logger.info("[데이터 수집 시작] 캐싱 없는 직접 서비스 호출 방식 사용")
+        
+        # 수집할 데이터 소스 정의 (우선순위 순)
+        data_sources = [
+            ("업비트 지수", self.service.get_upbit_indices, self._save_upbit_data, True),  # 웹스크래핑
+            ("USD/KRW 환율", self.service.get_usd_krw_rate, self._save_usd_krw_data, False),  # API
+            ("글로벌 데이터", self.service.get_global_crypto_data, self._save_global_data, False),  # API
+            ("코인게코 데이터", lambda: self.service.get_top_coins_with_sparkline(limit=10), self._save_coingecko_data, False)  # API
+        ]
+        
+        # 각 데이터 소스별 순차 처리
+        for name, collect_func, save_func, is_critical in data_sources:
+            success = self._collect_and_save_single_source(name, collect_func, save_func, is_critical)
+            if success:
+                success_count += 1
+        
+        # 전체 수집 결과 요약
+        total_duration = (datetime.now() - collection_start).total_seconds()
+        success_rate = (success_count / total_count) * 100
+        logger.info(f"[데이터 수집 완료] 성공률: {success_count}/{total_count} ({success_rate:.1f}%) - 총 소요시간: {total_duration:.2f}초")
+
+    def _collect_and_save_single_source(self, name: str, collect_func, save_func, is_critical: bool = False) -> bool:
+        """단일 데이터 소스 수집 및 저장 (단순화된 로직)"""
+        start_time = datetime.now()
+        try:
+            logger.info(f"[데이터 수집] {name} 수집 시작...")
+            
+            # 데이터 수집
+            data = collect_func()
+            
+            # 데이터 검증
+            if not self._validate_collected_data(data, name):
+                logger.warning(f"[데이터 수집] ✗ {name} 데이터 검증 실패")
+                return False
+            
+            # 데이터 저장
+            save_func(data)
+            
+            duration = (datetime.now() - start_time).total_seconds()
+            logger.info(f"[데이터 수집] ✓ {name} 완료 (소요시간: {duration:.2f}초)")
+            return True
+            
+        except Exception as e:
+            duration = (datetime.now() - start_time).total_seconds()
+            if is_critical:
+                logger.error(f"[데이터 수집] ✗ {name} 실패 (소요시간: {duration:.2f}초): {e}")
+            else:
+                logger.warning(f"[데이터 수집] ✗ {name} 실패 (소요시간: {duration:.2f}초): {e}")
+            return False
+
+    def _validate_collected_data(self, data, source_name: str) -> bool:
+        """수집된 데이터의 유효성 검증"""
+        if not data:
+            logger.debug(f"[데이터 검증] {source_name}: 데이터 없음")
+            return False
+            
+        if not isinstance(data, dict):
+            # 코인게코 데이터는 리스트일 수 있음
+            if source_name == "코인게코 데이터" and isinstance(data, list):
+                result = len(data) > 0 and all(isinstance(item, dict) for item in data)
+                logger.info(f"[데이터 검증] {source_name}: 리스트 검증 결과={result}, 길이={len(data)}")
+                return result
+            logger.debug(f"[데이터 검증] {source_name}: dict 타입이 아님 (타입: {type(data)})")
+            return False
+            
+        # 기본 구조 검증
+        if source_name == "업비트 지수":
+            return any(key in data for key in ['ubci', 'ubmi', 'ub10', 'ub30'])
+        elif source_name == "USD/KRW 환율":
+            return 'value' in data
+        elif source_name == "글로벌 데이터":
+            return any(key in data for key in ['total_market_cap', 'total_volume', 'btc_dominance'])
+        elif source_name == "코인게코 데이터":
+            # 이미 위에서 리스트 검증 완료
+            return isinstance(data, list) and len(data) > 0 and all(isinstance(item, dict) for item in data)
+            
+        return True
+
+    def _save_upbit_data(self, data: dict):
+        """업비트 지수 데이터 DB 저장 (성능 최적화)"""
+        if not data or not isinstance(data, dict):
+            logger.warning("[DB 저장] 업비트 데이터가 비어있음")
+            return
+            
+        save_start = datetime.now()
+        try:
+            # 전역 엔진 사용으로 성능 최적화
+            Session = sessionmaker(bind=engine)
+            session = Session()
+            
+            try:
+                repo = MarketIndexRepository(session)
+                
+                indices_data = []
+                name_mapping = {
+                    'ubci': '업비트 종합지수',
+                    'ubmi': '업비트 대형주지수', 
+                    'ub10': '업비트 10지수',
+                    'ub30': '업비트 30지수'
+                }
+                
+                for code, index_data in data.items():
+                    if code in name_mapping and isinstance(index_data, dict):
+                        indices_data.append({
+                            'index_type': MarketIndex.TYPE_UPBIT,
+                            'code': code,
+                            'name': name_mapping[code],
+                            'value': index_data.get('value', 0),
+                            'change': index_data.get('change', 0),
+                            'change_rate': index_data.get('change_rate', 0)
+                        })
+                
+                if indices_data:
+                    repo.bulk_upsert(indices_data)
+                    save_duration = (datetime.now() - save_start).total_seconds()
+                    logger.info(f"[DB 저장] ✓ 업비트 지수 저장 완료: {len(indices_data)}개 (소요시간: {save_duration:.3f}초)")
+                else:
+                    logger.warning("[DB 저장] ✗ 업비트 지수 저장할 데이터 없음")
+                    
+            finally:
+                session.close()
+                
+        except Exception as e:
+            save_duration = (datetime.now() - save_start).total_seconds()
+            logger.error(f"[DB 저장] ✗ 업비트 데이터 저장 실패 (소요시간: {save_duration:.3f}초): {e}")
+
+    def _save_usd_krw_data(self, data: dict):
+        """USD/KRW 환율 데이터 DB 저장 (성능 최적화)"""
+        if not data or not isinstance(data, dict):
+            logger.warning("[DB 저장] USD/KRW 데이터가 비어있음")
+            return
+            
+        save_start = datetime.now()
+        try:
+            # 전역 엔진 사용으로 성능 최적화
+            Session = sessionmaker(bind=engine)
+            session = Session()
+            
+            try:
+                repo = MarketIndexRepository(session)
+                
+                usd_krw_data = {
+                    'index_type': MarketIndex.TYPE_USD,
+                    'code': 'USD_KRW',
+                    'name': 'USD/KRW 환율',
+                    'value': data.get('value', 0),
+                    'change': data.get('change', 0),
+                    'change_rate': data.get('change_rate', 0)
+                }
+                
+                repo.bulk_upsert([usd_krw_data])
+                save_duration = (datetime.now() - save_start).total_seconds()
+                logger.info(f"[DB 저장] ✓ USD/KRW 환율 저장 완료 (소요시간: {save_duration:.3f}초)")
+                
+            finally:
+                session.close()
+                
+        except Exception as e:
+            save_duration = (datetime.now() - save_start).total_seconds()
+            logger.error(f"[DB 저장] ✗ USD/KRW 데이터 저장 실패 (소요시간: {save_duration:.3f}초): {e}")
+
+    def _save_global_data(self, data: dict):
+        """글로벌 암호화폐 데이터 DB 저장 (검증 강화)"""
+        if not data or not isinstance(data, dict):
+            logger.warning("[DB 저장] 글로벌 데이터가 비어있음")
+            return
+
+        # ⚠️ API 실패 시 빈 데이터로 덮어쓰기 방지
+        # CoinGecko 429 에러 등으로 API 실패 시 empty data가 반환되는 경우
+        # 이전의 정상 데이터를 보존하기 위해 저장하지 않음
+        is_empty_data = (
+            data.get('total_market_cap_usd', 0) == 0 and
+            data.get('total_volume_usd', 0) == 0 and
+            data.get('btc_dominance', 0) == 0
+        )
+
+        if is_empty_data:
+            logger.warning("[DB 저장] 글로벌 데이터가 모두 0 - API 실패로 판단, DB 업데이트 스킵 (이전 데이터 보존)")
+            return
+
+        save_start = datetime.now()
+        try:
+            # 데이터 내용 상세 로깅 (디버깅용)
+            logger.info(f"[DB 저장] 글로벌 데이터 수신 - 키 목록: {list(data.keys())}")
+            logger.info(f"[DB 저장] 글로벌 데이터 내용: 시가총액=${data.get('total_market_cap_usd', 0):,.0f}, "
+                       f"거래량=${data.get('total_volume_usd', 0):,.0f}, "
+                       f"BTC도미넌스={data.get('btc_dominance', 0):.2f}%, "
+                       f"24h변동={data.get('market_cap_change_24h', 0):.2f}%")
+            
+            # 전역 엔진 사용으로 성능 최적화
+            Session = sessionmaker(bind=engine)
+            session = Session()
+            
+            try:
+                repo = MarketIndexRepository(session)
+                
+                indices_data = [
+                    {
+                        'index_type': MarketIndex.TYPE_GLOBAL,
+                        'code': 'total_market_cap',
+                        'name': '총 시가총액',
+                        'value': data.get('total_market_cap_usd', 0)
+                    },
+                    {
+                        'index_type': MarketIndex.TYPE_GLOBAL,
+                        'code': 'total_volume',
+                        'name': '총 거래량',
+                        'value': data.get('total_volume_usd', 0)
+                    },
+                    {
+                        'index_type': MarketIndex.TYPE_GLOBAL,
+                        'code': 'btc_dominance',
+                        'name': 'BTC 도미넌스',
+                        'value': data.get('btc_dominance', 0)
+                    },
+                    {
+                        'index_type': MarketIndex.TYPE_GLOBAL,
+                        'code': 'market_cap_change_24h',
+                        'name': '시가총액 24h 변동',
+                        'value': data.get('market_cap_change_24h', 0)
+                    }
+                ]
+                
+                repo.bulk_upsert(indices_data)
+                save_duration = (datetime.now() - save_start).total_seconds()
+                logger.info(f"[DB 저장] ✓ 글로벌 지수 저장 완료: {len(indices_data)}개 (소요시간: {save_duration:.3f}초)")
+                
+            finally:
+                session.close()
+                
+        except Exception as e:
+            save_duration = (datetime.now() - save_start).total_seconds()
+            logger.error(f"[DB 저장] ✗ 글로벌 데이터 저장 실패 (소요시간: {save_duration:.3f}초): {e}")
+
+    def _save_coingecko_data(self, data: list):
+        """코인게코 톱 코인 데이터 DB 저장 (검증 강화)"""
+        if not data or not isinstance(data, list):
+            logger.warning("[DB 저장] 코인게코 데이터가 비어있음")
+            return
+
+        save_start = datetime.now()
+        try:
+            # 데이터 내용 상세 로깅 (디버깅용)
+            coin_names = [coin.get('symbol', 'unknown').upper() for coin in data[:5]] if data else []
+            coin_prices = [coin.get('current_price', 0) for coin in data[:5]] if data else []
+            logger.info(f"[DB 저장] 코인게코 데이터 수신: {len(data)}개 코인")
+            logger.info(f"[DB 저장] 상위 5개 코인: {coin_names}, 가격: {coin_prices}")
+            
+            # 전역 엔진 사용으로 성능 최적화
+            Session = sessionmaker(bind=engine)
+            session = Session()
+            
+            try:
+                repo = MarketIndexRepository(session)
+                
+                # 코인게코 상위 코인을 단일 레코드로 저장
+                coin_data = {
+                    'index_type': 'coin',
+                    'code': 'coingecko_top_coins',
+                    'name': 'CoinGecko 상위 코인',
+                    'value': len(data),  # 코인 개수
+                    'change': 0.0,
+                    'change_rate': 0.0,
+                    'extra_data': json.dumps(data),  # JSON 데이터는 extra_data에 저장
+                    'ttl_seconds': 300  # 5분 TTL
+                }
+                
+                repo.bulk_upsert([coin_data])
+                save_duration = (datetime.now() - save_start).total_seconds()
+                logger.info(f"[DB 저장] ✓ 코인게코 데이터 저장 완료: {len(data)}개 코인 (소요시간: {save_duration:.3f}초)")
+                logger.debug(f"[DB 저장] 저장된 JSON 데이터 타입: {type(data)}, 길이: {len(json.dumps(data))} bytes")
+                
+            finally:
+                session.close()
+                
+        except Exception as e:
+            save_duration = (datetime.now() - save_start).total_seconds()
+            logger.error(f"[DB 저장] ✗ 코인게코 데이터 저장 실패 (소요시간: {save_duration:.3f}초): {e}")
+
+    def _get_upbit_data_from_db(self) -> dict:
+        """DB에서 업비트 지수 데이터 조회"""
+        try:
+            # 전역 엔진 사용으로 성능 최적화
+            Session = sessionmaker(bind=engine)
+            session = Session()
+            
+            try:
+                repo = MarketIndexRepository(session)
+                upbit_indices = repo.get_by_type(MarketIndex.TYPE_UPBIT)
+                
+                result: dict = {'timestamp': datetime.now()}
+                for code in ['ubci', 'ubmi', 'ub10', 'ub30']:
+                    cached = next((idx for idx in upbit_indices if idx.code == code), None)
+                    if cached:
+                        result[code] = {
+                            'value': float(cached.value),
+                            'change': float(cached.change),
+                            'change_rate': float(cached.change_rate)
+                        }
+                    else:
+                        result[code] = {'value': 0.0, 'change': 0.0, 'change_rate': 0.0}
+                
+                return result
+            finally:
+                session.close()
+                
+        except Exception as e:
+            logger.error(f"업비트 데이터 DB 조회 실패: {e}")
+            return {'timestamp': datetime.now(), 'ubci': {'value': 0.0, 'change': 0.0, 'change_rate': 0.0}, 
+                   'ubmi': {'value': 0.0, 'change': 0.0, 'change_rate': 0.0},
+                   'ub10': {'value': 0.0, 'change': 0.0, 'change_rate': 0.0},
+                   'ub30': {'value': 0.0, 'change': 0.0, 'change_rate': 0.0}}
+
+    def _get_usd_krw_data_from_db(self) -> dict:
+        """DB에서 USD/KRW 환율 데이터 조회"""
+        try:
+            # 전역 엔진 사용으로 성능 최적화
+            Session = sessionmaker(bind=engine)
+            session = Session()
+            
+            try:
+                repo = MarketIndexRepository(session)
+                usd_data = repo.get_by_code('USD_KRW')
+                
+                if usd_data:
+                    return {
+                        'value': float(usd_data.value),
+                        'change': float(usd_data.change),
+                        'change_rate': float(usd_data.change_rate)
+                    }
+                else:
+                    return {'value': 0.0, 'change': 0.0, 'change_rate': 0.0}
+            finally:
+                session.close()
+                
+        except Exception as e:
+            logger.error(f"USD/KRW 데이터 DB 조회 실패: {e}")
+            return {'value': 0.0, 'change': 0.0, 'change_rate': 0.0}
+
+    def _get_global_data_from_db(self) -> dict:
+        """DB에서 글로벌 암호화폐 데이터 조회 (검증 강화)"""
+        try:
+            # 전역 엔진 사용으로 성능 최적화
+            Session = sessionmaker(bind=engine)
+            session = Session()
+
+            try:
+                repo = MarketIndexRepository(session)
+                global_indices = repo.get_by_type(MarketIndex.TYPE_GLOBAL)
+
+                result: dict = {'timestamp': datetime.now()}
+                data_count = 0
+
+                for idx in global_indices:
+                    if idx.code == 'total_market_cap':
+                        result['total_market_cap_usd'] = float(idx.value)
+                        data_count += 1
+                    elif idx.code == 'total_volume':
+                        result['total_volume_usd'] = float(idx.value)
+                        data_count += 1
+                    elif idx.code == 'btc_dominance':
+                        result['btc_dominance'] = float(idx.value)
+                        data_count += 1
+                    elif idx.code == 'market_cap_change_24h':
+                        result['market_cap_change_24h'] = float(idx.value)
+                        data_count += 1
+
+                # 데이터 검증 상세 로깅
+                if data_count == 0:
+                    logger.warning("[WebSocket] 글로벌 데이터 DB에서 데이터 없음 - DB에 저장된 레코드 없음")
+                else:
+                    logger.debug(f"[WebSocket] 글로벌 데이터 조회 완료: {data_count}개 항목 - "
+                               f"시가총액=${result.get('total_market_cap_usd', 0):,.0f}, "
+                               f"거래량=${result.get('total_volume_usd', 0):,.0f}, "
+                               f"BTC도미넌스={result.get('btc_dominance', 0):.2f}%")
+
+                return result
+            finally:
+                session.close()
+                
+        except Exception as e:
+            logger.error(f"[WebSocket] 글로벌 데이터 DB 조회 실패: {e}")
+            return {'timestamp': datetime.now()}
+
+    def _get_coingecko_data_from_db(self) -> list:
+        """DB에서 코인게코 톱 코인 데이터 조회 (검증 강화)"""
+        try:
+            # 전역 엔진 사용으로 성능 최적화
+            Session = sessionmaker(bind=engine)
+            session = Session()
+
+            try:
+                repo = MarketIndexRepository(session)
+                coin_data = repo.get_by_code('coingecko_top_coins')
+
+                if coin_data and coin_data.extra_data:
+                    try:
+                        # extra_data 타입 확인 로깅
+                        logger.debug(f"[WebSocket] extra_data 타입: {type(coin_data.extra_data)}")
+
+                        # extra_data에서 JSON 문자열을 파싱해서 코인 데이터 추출
+                        parsed_data = json.loads(coin_data.extra_data)
+
+                        # 중첩된 JSON 문자열인 경우 한번 더 파싱
+                        if isinstance(parsed_data, str):
+                            logger.debug(f"[WebSocket] 중첩 JSON 감지 - 2차 파싱 시도")
+                            parsed_data = json.loads(parsed_data)
+
+                        coin_count = len(parsed_data) if isinstance(parsed_data, list) else 0
+                        if coin_count > 0 and isinstance(parsed_data, list):
+                            coin_symbols = [coin.get('symbol', 'N/A').upper() for coin in parsed_data[:5]]
+                            logger.info(f"[WebSocket] 코인게코 데이터 조회 완료: {coin_count}개 코인 - 상위 5개: {coin_symbols}")
+                        else:
+                            logger.warning(f"[WebSocket] 코인게코 데이터 형식 오류: 타입={type(parsed_data)}, 개수={coin_count}")
+                        return parsed_data
+                    except json.JSONDecodeError as e:
+                        logger.warning(f"[WebSocket] 코인게코 데이터 JSON 파싱 실패: {e}")
+                        return []
+                else:
+                    logger.warning("[WebSocket] 코인게코 데이터 DB에서 데이터 없음")
+                    return []
+            finally:
+                session.close()
+                
+        except Exception as e:
+            logger.error(f"[WebSocket] 코인게코 데이터 DB 조회 실패: {e}")
+            return []
 
 
 if __name__ == "__main__":
@@ -228,7 +1077,7 @@ if __name__ == "__main__":
 
     scheduler = MarketIndexScheduler()
 
-    print(f"현재 설정:")
+    print("현재 설정:")
     print(f"  - 업데이트 주기: {scheduler.config.get_update_interval_minutes()}분")
     print(f"  - WebSocket URL: {scheduler.config.get_websocket_url()}\n")
 

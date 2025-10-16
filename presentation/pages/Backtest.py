@@ -21,106 +21,6 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-st.set_page_config(
-    page_title="백테스팅 - BTS",
-    page_icon="",
-    layout="wide"
-)
-
-# 사이드바 로고 설정
-# 사이드바 로고 설정
-logo_path = str(project_root / "resource" / "image" / "peaknine_logo_01.svg")
-icon_path = str(project_root / "resource" / "image" / "peaknine_02.png")
-st.logo(
-    image=logo_path,
-    icon_image=logo_path
-)
-
-# 로고 크기 조정 및 메뉴 스타일
-st.markdown("""
-<style>
-    /* Noto Sans KR 폰트 로드 */
-    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&display=swap');
-    /* Bootstrap Icons 로드 */
-    @import url('https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css');
-    /* Material Icons 로드 */
-    @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200');
-
-    /* 전체 폰트 적용 (아이콘 제외) */
-    html, body, [class*="css"] {
-        font-family: 'Noto Sans KR', sans-serif !important;
-    }
-
-    /* Streamlit 내부 요소 폰트 적용 */
-    p, h1, h2, h3, h4, h5, h6, label, input, textarea, select, button,
-    [data-testid] div, [data-testid] span, [data-testid] p,
-    .stMarkdown, .stText, .stCaption {
-        font-family: 'Noto Sans KR', sans-serif !important;
-    }
-
-    /* Material Icons 요소는 원래 폰트 유지 */
-    .material-symbols-outlined,
-    [class*="material-icons"],
-    span[data-testid*="stIcon"],
-    button span,
-    [role="button"] span {
-        font-family: 'Material Symbols Outlined', 'Material Icons' !important;
-    }
-
-    [data-testid="stSidebarNav"] {
-        padding-top: 0 !important;
-    }
-    [data-testid="stSidebarNav"] > div:first-child {
-        padding: 1.5rem 1rem !important;
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-        width: 100% !important;
-    }
-    [data-testid="stSidebarNav"] a {
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-        width: 100% !important;
-    }
-    [data-testid="stSidebarNav"] img {
-        width: 90% !important;
-        max-width: 280px !important;
-        height: auto !important;
-    }
-    [data-testid="stSidebarNav"] ul {
-        margin-top: 1rem !important;
-    }
-    [data-testid="stSidebarNav"] ul li a {
-        text-align: left !important;
-        justify-content: flex-start !important;
-    }
-    h1 {
-        font-size: 1.8rem !important;
-        margin-top: 0.5rem !important;
-        margin-bottom: 0.5rem !important;
-    }
-    h2 {
-        font-size: 1.3rem !important;
-        margin-top: 0.8rem !important;
-        margin-bottom: 0.5rem !important;
-    }
-    h3 {
-        font-size: 1.1rem !important;
-        margin-top: 0.6rem !important;
-        margin-bottom: 0.4rem !important;
-    }
-    hr {
-        margin-top: 0.8rem !important;
-        margin-bottom: 0.8rem !important;
-    }
-    .block-container {
-        padding-top: 2rem !important;
-        padding-bottom: 1rem !important;
-    }
-</style>
-""", unsafe_allow_html=True)
-
 def get_services():
     """서비스 인스턴스 가져오기"""
     if 'db' not in st.session_state:
@@ -134,10 +34,6 @@ def get_services():
     return st.session_state.strategy_service
 
 def main():
-    # 전역 스타일 적용
-    from presentation.styles.global_styles import apply_global_styles
-    apply_global_styles()
-
     st.title("백테스팅")
     st.markdown("---")
 

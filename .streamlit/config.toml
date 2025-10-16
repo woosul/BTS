@@ -1,31 +1,16 @@
+[theme]
+base = "dark"
+primaryColor = "#0068C9"
+
 [server]
-# Prevent browser from automatically opening
 headless = true
+port = 8501
 
 [browser]
-# Prevent browser from automatically opening
 gatherUsageStats = false
-serverAddress = "localhost"
-serverPort = 8501
-
-# Force Korean locale
-[runner]
-# Set default locale to Korean
-# This ensures consistent behavior regardless of system locale
-fastReruns = true
 
 [client]
-# Show toolbar in viewer mode (shows hamburger menu)
-# Options: "auto", "developer", "viewer", "minimal"
 toolbarMode = "viewer"
 
-[theme]
-# Use dark theme base
-base = "dark"
-
-# Primary accent color for interactive elements
-primaryColor = "#54A0FD"
-
-# Font family for all text in the app, except code blocks
-# Accepts any CSS font-family value
-font = "'Noto Sans KR', sans-serif"
+[runner]
+magicEnabled = false
