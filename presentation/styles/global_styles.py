@@ -136,6 +136,37 @@ def apply_global_styles():
         border-radius: 4px !important;
     }
 
+    /* 토글 위젯 */
+    [data-testid="stToggle"] label {
+        font-size: 0.875rem !important;
+    }
+    [data-testid="stToggle"] label p {
+        font-size: 0.875rem !important;
+    }
+    [data-testid="stToggle"] label div {
+        font-size: 0.875rem !important;
+    }
+    [data-testid="stToggle"] label span {
+        font-size: 0.875rem !important;
+    }
+    /* Toggle 내부 텍스트 강제 적용 */
+    .stToggle label p,
+    .stToggle label div,
+    .stToggle label span {
+        font-size: 0.875rem !important;
+    }
+    /* Toggle 컨테이너 내 모든 텍스트 */
+    div[data-testid="stToggle"] * {
+        font-size: 0.875rem !important;
+    }
+    /* stWidgetLabel 내부 */
+    [data-testid="stWidgetLabel"] p {
+        font-size: 0.875rem !important;
+    }
+    [data-testid="stWidgetLabel"] [data-testid="stMarkdownContainer"] p {
+        font-size: 0.875rem !important;
+    }
+
     /* 멀티셀렉트 태그 */
     [data-baseweb="tag"] {
         font-size: 0.875rem !important;
@@ -144,6 +175,25 @@ def apply_global_styles():
     [data-baseweb="tag"] span {
         font-size: 0.875rem !important;
         font-family: "Noto Sans KR", sans-serif !important;
+    }
+
+    /* ==================== 코드 블록 스타일 ==================== */
+    /* 코드 블록 컨테이너 */
+    [data-testid="stCode"] {
+        font-size: 0.875rem !important;
+    }
+    [data-testid="stCode"] pre {
+        font-size: 0.875rem !important;
+    }
+    [data-testid="stCode"] code {
+        font-size: 0.875rem !important;
+    }
+    /* 코드 블록 내부 모든 요소 */
+    .stCode code,
+    .stCode pre,
+    code[class*="language-"],
+    pre[class*="language-"] {
+        font-size: 0.875rem !important;
     }
 
     /* ==================== 버튼 스타일 ==================== */

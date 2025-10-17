@@ -22,6 +22,7 @@ class UserSettings:
     # 설정 키 상수
     DASHBOARD_REFRESH_INTERVAL = "dashboard_refresh_interval"
     GENERAL_UPDATE_INTERVAL = "general_update_interval"
+    WEBSOCKET_ENABLED = "websocket_enabled"  # WebSocket 실시간 업데이트 활성화 여부
     # WEBSOCKET_UPDATE_INTERVAL 제거 - 대시보드 업데이트 주기에 연동
     CACHE_TTL_UPBIT = "cache_ttl_upbit"
     CACHE_TTL_GLOBAL = "cache_ttl_global"

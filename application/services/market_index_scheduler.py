@@ -135,27 +135,36 @@ class MarketIndexScheduler:
             logger.error(f"[스케줄러] WebSocket 전송 실패: {notify_error}", exc_info=True)
 
     def run_scheduler(self):
-        """스케줄러 메인 루프 - 듀얼 스레드 데이터 수집 + WebSocket 전송"""
+        """스케줄러 메인 루프 - 듀얼 스레드 데이터 수집 + 페이지별 차등 WebSocket 전송"""
         logger.info("✓ 듀얼 스레드 스케줄러 시작:")
         logger.info(f"  - 업비트 지수 + USD/KRW: {MarketIndexConfig.UPDATE_INTERVAL_UPBIT_SCRAPING}초 간격 (실시간)")
         logger.info(f"  - 글로벌 지수: {MarketIndexConfig.UPDATE_INTERVAL_COINGECKO}초 간격 (실시간)")
-        logger.info(f"  - WebSocket 전송: {MarketIndexConfig.WEBSOCKET_UPDATE_INTERVAL}초 간격")
+        logger.info(f"  - WebSocket 전송: 페이지별 차등 전송 전략 적용")
+        
+        # 활성화된 페이지 전략 출력
+        for page, strategy in MarketIndexConfig.WEBSOCKET_PAGE_STRATEGIES.items():
+            if strategy['enabled']:
+                logger.info(f"    ✓ {page}: {strategy['interval']}초 ({strategy['description']})")
 
-        # 백그라운드 데이터 업데이트 스레드 시작 (3개 독립 스레드)
+        # 백그라운드 데이터 업데이트 스레드 시작 (2개 독립 스레드)
         self._start_background_data_updater()
 
-        # 시작 시 즉시 한 번 WebSocket 전송
-        self._send_websocket_update()
+        # 페이지별 마지막 전송 시간 추적
+        last_send_times = {}
+        
+        # 시작 시 활성화된 페이지에 즉시 한 번 전송
+        self._send_websocket_by_page_strategy(last_send_times, force_send=True)
 
         while self.running:
-            # WebSocket 전송은 실시간성 우선으로 설정된 간격 사용
-            websocket_interval = MarketIndexConfig.WEBSOCKET_UPDATE_INTERVAL
-
-            logger.info(f"[WebSocket] 다음 업데이트까지 {websocket_interval}초 대기 (연결된 클라이언트: {len(self.connected_clients)}명)")
-            time.sleep(websocket_interval)
-
-            if self.running:  # 중단되지 않았으면 WebSocket 전송
-                self._send_websocket_update()
+            # 다음 전송까지 대기할 시간 계산
+            next_sleep = self._calculate_next_sleep_time(last_send_times)
+            
+            if next_sleep > 0:
+                logger.debug(f"[WebSocket 스케줄러] 다음 전송까지 {next_sleep:.1f}초 대기")
+                time.sleep(next_sleep)
+            
+            if self.running:
+                self._send_websocket_by_page_strategy(last_send_times)
 
     def _start_background_data_updater(self):
         """
@@ -193,8 +202,20 @@ class MarketIndexScheduler:
                     duration = (datetime.now() - start_time).total_seconds()
                     logger.info(f"[업비트 업데이터] 완료 (소요시간: {duration:.2f}초)")
 
-                    # 설정된 간격만큼 대기
-                    time.sleep(max(interval - duration, 1))  # 최소 1초 대기
+                    # Sleep을 WebSocket 전송 주기(5초)로 분할하여 Dashboard 전환 감지 개선
+                    remaining_time = max(interval - duration, 1)
+                    sleep_chunk = self.config.WEBSOCKET_UPDATE_INTERVAL  # 5초
+                    elapsed = 0
+
+                    while elapsed < remaining_time and self.running:
+                        time.sleep(min(sleep_chunk, remaining_time - elapsed))
+                        elapsed += sleep_chunk
+
+                        # Dashboard 활성 상태 변화 감지
+                        new_interval = self._get_update_interval_for_upbit()
+                        if new_interval != interval:
+                            logger.info(f"[업비트 업데이터] 간격 변경 감지: {interval}초 → {new_interval}초 (조기 종료)")
+                            break  # 즉시 다음 루프 시작
 
                 except Exception as e:
                     logger.error(f"[업비트 업데이터] 실패: {e}", exc_info=True)
@@ -226,8 +247,20 @@ class MarketIndexScheduler:
                     duration = (datetime.now() - start_time).total_seconds()
                     logger.info(f"[글로벌 업데이터] 완료 (소요시간: {duration:.2f}초)")
 
-                    # 설정된 간격만큼 대기
-                    time.sleep(max(interval - duration, 1))
+                    # Sleep을 WebSocket 전송 주기(5초)로 분할하여 Dashboard 전환 감지 개선
+                    remaining_time = max(interval - duration, 1)
+                    sleep_chunk = self.config.WEBSOCKET_UPDATE_INTERVAL  # 5초
+                    elapsed = 0
+
+                    while elapsed < remaining_time and self.running:
+                        time.sleep(min(sleep_chunk, remaining_time - elapsed))
+                        elapsed += sleep_chunk
+
+                        # Dashboard 활성 상태 변화 감지
+                        new_interval = self._get_update_interval_for_global()
+                        if new_interval != interval:
+                            logger.info(f"[글로벌 업데이터] 간격 변경 감지: {interval}초 → {new_interval}초 (조기 종료)")
+                            break  # 즉시 다음 루프 시작
 
                 except Exception as e:
                     logger.error(f"[글로벌 업데이터] 실패: {e}", exc_info=True)
@@ -247,8 +280,182 @@ class MarketIndexScheduler:
         logger.info(f"  - 글로벌 지수: {MarketIndexConfig.UPDATE_INTERVAL_COINGECKO}초")
         logger.info(f"  - WebSocket 전송: {MarketIndexConfig.WEBSOCKET_UPDATE_INTERVAL}초")
 
+    def _calculate_next_sleep_time(self, last_send_times: dict) -> float:
+        """다음 전송까지 대기할 시간 계산 (초 단위)
+        
+        Args:
+            last_send_times: 페이지별 마지막 전송 시간
+            
+        Returns:
+            다음 전송까지 남은 시간 (초), 전송할 페이지가 없으면 10초
+        """
+        current_time = time.time()
+        min_wait_time = 10.0  # 클라이언트 없을 때 기본 대기 시간
+        
+        # 페이지별 클라이언트 그룹 분류
+        page_clients = {}
+        for ws, info in self.client_info.items():
+            if ws not in self.connected_clients:
+                continue
+                
+            page = info.get('page', 'unknown')
+            if page not in page_clients:
+                page_clients[page] = []
+            page_clients[page].append(ws)
+        
+        # 활성화된 각 페이지의 다음 전송 시간까지 남은 시간 계산
+        next_send_times = []
+        
+        for page, clients in page_clients.items():
+            strategy = MarketIndexConfig.WEBSOCKET_PAGE_STRATEGIES.get(
+                page, 
+                MarketIndexConfig.WEBSOCKET_PAGE_STRATEGIES['unknown']
+            )
+            
+            # 전송 비활성화된 페이지는 스킵
+            if not strategy['enabled']:
+                continue
+            
+            interval = strategy['interval']
+            last_send = last_send_times.get(page, 0)
+            elapsed = current_time - last_send
+            remaining = interval - elapsed
+            
+            if remaining > 0:
+                next_send_times.append(remaining)
+                logger.debug(f"[WebSocket 스케줄러] {page}: 다음 전송까지 {remaining:.1f}초 남음")
+        
+        # 가장 빠른 전송 시간 반환
+        if next_send_times:
+            next_sleep = min(next_send_times)
+            return max(next_sleep, 0.1)  # 최소 0.1초는 보장
+        else:
+            logger.debug(f"[WebSocket 스케줄러] 활성 클라이언트 없음 - {min_wait_time}초 대기")
+            return min_wait_time
+
+    def _send_websocket_by_page_strategy(self, last_send_times: dict, force_send: bool = False):
+        """페이지별 전송 전략에 따라 WebSocket 전송
+        
+        Args:
+            last_send_times: 페이지별 마지막 전송 시간 딕셔너리
+            force_send: 강제 전송 여부 (시작 시)
+        """
+        current_time = time.time()
+        
+        # 페이지별 클라이언트 그룹 분류
+        page_clients = {}
+        for ws, info in self.client_info.items():
+            if ws not in self.connected_clients:
+                continue
+                
+            page = info.get('page', 'unknown')
+            if page not in page_clients:
+                page_clients[page] = []
+            page_clients[page].append(ws)
+        
+        # 각 페이지별로 전송 전략 확인 및 전송
+        for page, clients in page_clients.items():
+            strategy = MarketIndexConfig.WEBSOCKET_PAGE_STRATEGIES.get(
+                page, 
+                MarketIndexConfig.WEBSOCKET_PAGE_STRATEGIES['unknown']
+            )
+            
+            # 전송 비활성화된 페이지는 스킵
+            if not strategy['enabled']:
+                continue
+            
+            interval = strategy['interval']
+            last_send = last_send_times.get(page, 0)
+            
+            # 전송 시간이 되었는지 확인
+            if force_send or (current_time - last_send >= interval):
+                try:
+                    message_json = self._prepare_websocket_message()
+                    self._send_to_page_clients(clients, message_json, page)
+                    last_send_times[page] = current_time
+                    logger.info(f"[WebSocket] {page} 페이지 {len(clients)}명 전송 완료 ({interval}초 주기)")
+                except Exception as e:
+                    logger.error(f"[WebSocket] {page} 페이지 전송 실패: {e}", exc_info=True)
+
+    def _prepare_websocket_message(self) -> str:
+        """WebSocket 전송용 메시지 준비"""
+        # DB에서 직접 최신 데이터 조회
+        upbit_data = self._get_upbit_data_from_db()
+        usd_data = self._get_usd_krw_data_from_db()
+        global_data = self._get_global_data_from_db()
+        coingecko_data = self._get_coingecko_data_from_db()
+
+        # datetime 객체 직렬화
+        upbit_data = self._serialize_data(upbit_data)
+        usd_data = self._serialize_data(usd_data)
+        global_data = self._serialize_data(global_data)
+        coingecko_data = self._serialize_data(coingecko_data)
+
+        # 메시지 구성
+        message = {
+            'type': 'indices_updated',
+            'timestamp': datetime.now().isoformat(),
+            'data': {
+                'upbit': upbit_data,
+                'usd_krw': usd_data,
+                'global': global_data,
+                'coingecko_top_coins': coingecko_data
+            }
+        }
+        
+        return json.dumps(message, ensure_ascii=False, default=str)
+
+    def _send_to_page_clients(self, clients: list, message_json: str, page: str):
+        """특정 페이지 클라이언트 그룹에게 전송"""
+        if not self.websocket_loop or self.websocket_loop.is_closed():
+            logger.warning(f"[WebSocket] {page} 전송 스킵 - 이벤트 루프 없음")
+            return
+        
+        try:
+            # 비동기 작업을 이벤트 루프에 예약 (논블로킹)
+            future = asyncio.run_coroutine_threadsafe(
+                self._notify_specific_clients(clients, message_json, page),
+                self.websocket_loop
+            )
+            
+            # 타임아웃 설정으로 블로킹 방지
+            future.result(timeout=3)
+            
+        except asyncio.TimeoutError:
+            logger.warning(f"[WebSocket] {page} 전송 타임아웃 (3초)")
+        except Exception as e:
+            logger.error(f"[WebSocket] {page} 전송 실패: {e}", exc_info=True)
+
+    async def _notify_specific_clients(self, clients: list, message: str, page: str):
+        """특정 클라이언트 그룹에게만 전송"""
+        disconnected = []
+        successful_sends = 0
+
+        for websocket in clients:
+            try:
+                await websocket.send(message)
+                successful_sends += 1
+            except websockets.exceptions.ConnectionClosed:
+                disconnected.append(websocket)
+                logger.warning(f"[{page}] 연결 끊긴 클라이언트 감지: {getattr(websocket, 'remote_address', 'unknown')}")
+            except Exception as e:
+                disconnected.append(websocket)
+                logger.error(f"[{page}] 클라이언트 전송 실패: {e}")
+
+        # 끊어진 연결 정리
+        for websocket in disconnected:
+            if websocket in self.connected_clients:
+                self.connected_clients.remove(websocket)
+            if websocket in self.client_info:
+                del self.client_info[websocket]
+
+        if disconnected:
+            logger.info(f"[{page}] 끊어진 연결 {len(disconnected)}개 정리 완료")
+        
+        logger.debug(f"[{page}] WebSocket 전송 완료: {successful_sends}/{len(clients) + len(disconnected)}명")
+
     def _send_websocket_update(self):
-        """WebSocket 클라이언트에게 최신 데이터 전송"""
+        """WebSocket 클라이언트에게 최신 데이터 전송 (레거시 메서드 - 호환성 유지)"""
         try:
             # DB에서 직접 최신 데이터 조회
             upbit_data = self._get_upbit_data_from_db()

@@ -26,6 +26,43 @@ class MarketIndexConfig:
     # ===== WebSocket 전송 주기 =====
     WEBSOCKET_UPDATE_INTERVAL = 5  # 5초 (화면 업데이트 주기, 실시간성 우선)
 
+    # ===== 페이지별 WebSocket 전송 전략 =====
+    # 각 페이지별로 WebSocket 전송 여부 및 주기 설정
+    # 'enabled': True/False - WebSocket 전송 활성화 여부
+    # 'interval': 초 단위 전송 주기 (enabled=True일 때만 적용)
+    WEBSOCKET_PAGE_STRATEGIES = {
+        'dashboard': {
+            'enabled': True,
+            'interval': 5,  # 5초 (실시간 업데이트)
+            'description': 'Dashboard 실시간 모니터링'
+        },
+        'screening': {
+            'enabled': False,  # 필요시 True로 변경
+            'interval': 60,
+            'description': '종목 스크리닝 (필요시 활성화)'
+        },
+        'filtering': {
+            'enabled': False,  # 필요시 True로 변경
+            'interval': 60,
+            'description': '종목 필터링 (필요시 활성화)'
+        },
+        'portfolio': {
+            'enabled': False,
+            'interval': 30,
+            'description': '포트폴리오 모니터링 (필요시 활성화)'
+        },
+        'setting': {
+            'enabled': False,
+            'interval': 0,
+            'description': '설정 페이지 (전송 불필요)'
+        },
+        'unknown': {
+            'enabled': False,
+            'interval': 0,
+            'description': '알 수 없는 페이지 (기본값)'
+        }
+    }
+
     # API Rate Limit 설정 (밀리초 단위, API 문서상 최소값)
     API_MIN_INTERVAL_UPBIT_SCRAPING = 5000  # 업비트 웹스크래핑: 5초 (측정 기준)
     API_MIN_INTERVAL_UPBIT_API = 100  # 업비트 API: 100ms (10회/초)
