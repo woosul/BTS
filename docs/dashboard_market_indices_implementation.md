@@ -277,7 +277,7 @@ python test_market_indices.py
 - 대응: `_extract_indices_from_nextjs()` 메서드에서 여러 경로 시도
 
 ### CoinGecko Rate Limit
-- 무료 API는 초당 50 요청 제한
+- 무료 API는 초당 30 요청 제한
 - 대응: 20ms 간격 보장 + 5분 캐싱
 
 ---
