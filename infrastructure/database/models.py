@@ -471,7 +471,7 @@ class FilteredSymbolORM(Base):
 
 # ===== 마켓 인덱스 모델 =====
 class MarketIndexORM(Base):
-    """마켓 인덱스 캐시 테이블"""
+    """마켓 인덱스 시계열 테이블 (7일 히스토리 유지)"""
     __tablename__ = "market_indices"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
@@ -483,8 +483,8 @@ class MarketIndexORM(Base):
     code: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
-        index=True,
-        unique=True
+        index=True
+        # unique=True 제거 → 시계열 저장 가능
     )  # ubci, ubmi, ub10, ub30, market_cap, BTC, etc.
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     value: Mapped[Decimal] = mapped_column(
@@ -506,6 +506,11 @@ class MarketIndexORM(Base):
         Text,
         nullable=True
     )  # JSON 문자열
+    api_source: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        index=True
+    )  # API 소스: binance, coingecko, etc.
     ttl_seconds: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -514,7 +519,8 @@ class MarketIndexORM(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         nullable=False,
-        server_default=func.now()
+        server_default=func.now(),
+        index=True  # 시계열 조회 최적화
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
@@ -526,6 +532,7 @@ class MarketIndexORM(Base):
 
     __table_args__ = (
         Index("ix_index_type_code", "index_type", "code"),
+        Index("ix_created_at_desc", "created_at"),  # 최신 데이터 조회용
     )
 
     def __repr__(self) -> str:

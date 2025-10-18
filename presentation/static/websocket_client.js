@@ -83,7 +83,7 @@ function updateDashboard(data) {
         upbit: data.upbit ? 'OK' : 'NO',
         usd_krw: data.usd_krw ? 'OK' : 'NO',
         global: data.global ? 'OK' : 'NO',
-        coingecko_top_coins: data.coingecko_top_coins ? 'OK' : 'NO'
+        top_coins: data.top_coins ? 'OK' : 'NO'  // Binance/CoinGecko 통합
     });
 
     let updateCount = 0;
@@ -209,12 +209,18 @@ function updateDashboard(data) {
     }
 
     // ===== 개별 코인 추세 업데이트 =====
-    if (data.coingecko_top_coins && Array.isArray(data.coingecko_top_coins) && data.coingecko_top_coins.length > 0) {
-        console.log('[WebSocket] 코인게코 데이터 처리:', data.coingecko_top_coins.length + '개 코인');
+    if (data.top_coins && Array.isArray(data.top_coins) && data.top_coins.length > 0) {
+        console.log('[WebSocket] 코인 데이터 처리:', data.top_coins.length + '개 코인');
+        
+        // KRW 토글 상태 확인 (data-krw attribute 사용)
+        const currencyModeElement = doc.getElementById('currency-mode');
+        const isKRWMode = currencyModeElement ? currencyModeElement.getAttribute('data-krw') === 'True' : false;
+        
+        console.log('[WebSocket] 현재 통화 모드:', isKRWMode ? 'KRW' : 'USD', '(Element:', currencyModeElement ? 'Found' : 'Not Found', ')');
 
         // ID 기반으로 카드 찾기 (예: coin-btc-card, coin-eth-card)
-        for (let i = 0; i < Math.min(5, data.coingecko_top_coins.length); i++) {
-            const coin = data.coingecko_top_coins[i];
+        for (let i = 0; i < Math.min(5, data.top_coins.length); i++) {
+            const coin = data.top_coins[i];
             const symbol = coin.symbol ? coin.symbol.toLowerCase() : null;
 
             if (symbol) {
@@ -226,9 +232,14 @@ function updateDashboard(data) {
                     const deltaSpan = card.querySelector('.metric-delta');
 
                     if (valueSpan) {
-                        const price = coin.current_price || 0;
-                        const priceStr = price < 1000 ? price.toFixed(2) : price.toFixed(0);
-                        valueSpan.textContent = '$' + priceStr;
+                        // 🎯 서버에서 전송한 포맷팅된 문자열 사용
+                        const priceStr = isKRWMode ? 
+                            (coin.price_krw_formatted || '₩N/A') : 
+                            (coin.price_usd_formatted || '$N/A');
+                        
+                        valueSpan.textContent = priceStr;
+                        
+                        console.log('[WebSocket] ✓ 코인 ' + symbol.toUpperCase() + ' 업데이트: ' + priceStr + ' (모드: ' + (isKRWMode ? 'KRW' : 'USD') + ')');
 
                         if (deltaSpan && coin.price_change_percentage_7d !== undefined) {
                             const change = coin.price_change_percentage_7d || 0;
@@ -248,7 +259,6 @@ function updateDashboard(data) {
                         }
 
                         updateCount++;
-                        console.log('[WebSocket] ✓ 코인 ' + symbol.toUpperCase() + ' 업데이트: $' + priceStr);
                     }
                 } else {
                     console.warn('[WebSocket] 코인 카드를 찾을 수 없음:', cardId);

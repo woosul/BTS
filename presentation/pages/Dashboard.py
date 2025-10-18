@@ -12,6 +12,10 @@ from decimal import Decimal
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
+# 전역 스타일 적용 (페이지별로 필수)
+from presentation.styles.global_styles import apply_global_styles
+apply_global_styles()
+
 from infrastructure.database.connection import get_db_session
 from application.services.wallet_service import WalletService
 from application.services.trading_service import TradingService
@@ -59,11 +63,21 @@ def get_services():
 
 def main():
     st.title("대시보드")
-
-    # 마지막 업데이트 타임스탬프 표시
+    
+    # 세션 상태 초기화 (KRW 토글)
+    if 'show_krw' not in st.session_state:
+        st.session_state.show_krw = False
+    
+    # 마지막 업데이트 타임스탬프 표시 (시간 부분만 업데이트 가능하도록 span으로 분리)
     from datetime import datetime
-    st.markdown(f'<span style="color: rgba(250, 250, 250, 0.6); font-size: 0.875rem;">마지막 업데이트 | <span id="last-update-timestamp">{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</span> | WebSocket 실시간 연동 | <a href="/Setting" style="color: #ff6b6b;">설정 →</a></span>', unsafe_allow_html=True)
-
+    st.markdown(
+        f'<p style="font-size: 0.875rem; color: rgba(250, 250, 250, 0.6);">'
+        f'마지막 업데이트 | <span id="last-update-timestamp">{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</span> | WebSocket 실시간 연동 | '
+        f'<a href="/Setting" style="color: rgba(250, 250, 250, 0.6);">설정 →</a>'
+        f'</p>',
+        unsafe_allow_html=True
+    )
+    
     st.markdown("---")
 
     # 업비트 종합지수 + USD 환율 (DB에서 조회)
@@ -141,7 +155,7 @@ def main():
         scheduler = MarketIndexScheduler()
 
         global_data = scheduler._get_global_data_from_db()
-        coins_data = scheduler._get_coingecko_data_from_db()
+        coins_data = scheduler._get_coin_data_from_db()
 
         # 디버깅: 글로벌 데이터 내용 로깅
         logger.info(f"Dashboard 글로벌 데이터 조회: {global_data}")
@@ -172,56 +186,141 @@ def main():
             combined_metrics[2]["value"] = btc_dom_value
             logger.info(f"Dashboard BTC 도미넌스 카드 설정: {btc_dom_value}")
 
-        # 코인 데이터가 있으면 평균 데이터 추가 (2개)
-        if coins_data and len(coins_data) > 0:
-            avg_change = sum(coin.get('price_change_percentage_7d', 0) for coin in coins_data) / len(coins_data)
-            avg_mcap = sum(coin.get('market_cap', 0) for coin in coins_data) / len(coins_data) / 1_000_000_000
-
-            combined_metrics.extend([
-                {
-                    "label": "평균 변화율",
-                    "value": f"{abs(avg_change):.1f}%",
-                    "delta": avg_change
-                },
-                {
-                    "label": "평균 시가총액", 
-                    "value": f"${avg_mcap:.1f}B",
-                    "delta": None
-                }
-            ])
+        # 글로벌 데이터에서 평균 변화율과 거래량-시가총액 비율 추가
+        if 'market_cap_change_24h' in global_data:
+            change_rate = global_data['market_cap_change_24h']
+            combined_metrics.append({
+                "label": "평균 변화율",
+                "value": f"{abs(change_rate):.2f}%",
+                "delta": change_rate  # 컬러 코딩을 위한 delta 값
+            })
         else:
-            combined_metrics.extend([
-                {"label": "평균 변화율", "value": "N/A", "delta": None},
-                {"label": "평균 시가총액", "value": "N/A", "delta": None}
-            ])
+            combined_metrics.append({"label": "평균 변화율", "value": "N/A", "delta": None})
+
+        if 'volume_to_market_cap_ratio' in global_data:
+            ratio = global_data['volume_to_market_cap_ratio']
+            combined_metrics.append({
+                "label": "거래량-시가총액 비율",
+                "value": f"{ratio:.2f}%",
+                "delta": None
+            })
+        else:
+            combined_metrics.append({"label": "거래량-시가총액 비율", "value": "N/A", "delta": None})
 
         render_metric_card_group(
             title="글로벌 시장 지수",
             metrics=combined_metrics,
-            columns=5
+            columns=5,
+            attribution='Powered by <a href="https://www.coingecko.com" target="_blank" style="color: #808080; text-decoration: none;">CoinGecko</a>'
         )
 
         st.markdown("")  # 간격
 
-        # 개별 코인 추세 (5개) - 단순 표시
+        # 개별 코인 추세 (상위 5개: BTC, ETH, SOL, BNB, XRP)
+        # API 소스와 무관하게 심볼 기반으로 매칭
         if coins_data and len(coins_data) > 0:
+            # USD/KRW 환율 가져오기
+            usd_krw_rate = usd_data.get('value', 1400.0) if usd_data else 1400.0
+            show_krw = st.session_state.get('show_krw', False)
+            
+            logger.info(f"Dashboard 개별 코인: show_krw={show_krw}, usd_krw_rate={usd_krw_rate}")
+            
             coin_metrics = []
-            for coin in coins_data[:5]:
-                price = coin.get('current_price', 0)
-                price_str = f"${price:,.2f}" if price < 1000 else f"${price:,.0f}"
-                symbol = coin.get('symbol', 'N/A').upper()
-                coin_metrics.append({
-                    "label": symbol,
-                    "value": price_str,
-                    "delta": coin.get('price_change_percentage_7d', 0),
-                    "card_id": f"coin-{symbol.lower()}-card"
-                })
+            
+            # 표시할 코인 순서 (심볼 우선순위)
+            target_symbols = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP']
+            
+            # 심볼 → CoinGecko ID 매핑 (Fallback 호환성)
+            symbol_to_id = {
+                'BTC': 'bitcoin',
+                'ETH': 'ethereum',
+                'SOL': 'solana',
+                'BNB': 'binancecoin',
+                'XRP': 'ripple',
+                'USDT': 'tether',
+                'USDC': 'usd-coin'
+            }
+            
+            # 역매핑 (ID → 심볼)
+            id_to_symbol = {v: k for k, v in symbol_to_id.items()}
+            
+            for coin in coins_data:
+                if len(coin_metrics) >= 5:
+                    break
+                
+                # 심볼 추출 (대소문자 무관)
+                symbol = coin.get('symbol', '').upper()
+                coin_id = coin.get('id', '').lower()
+                
+                # 심볼 또는 ID로 매칭
+                matched_symbol = None
+                if symbol in target_symbols:
+                    matched_symbol = symbol
+                elif coin_id in id_to_symbol:
+                    matched_symbol = id_to_symbol[coin_id]
+                
+                if matched_symbol:
+                    name = coin.get('name', matched_symbol)
+                    price_usd = float(coin.get('current_price', 0))  # float로 명시적 변환
+                    change_24h = coin.get('price_change_percentage_24h', 0)
+                    
+                    # KRW/USD 토글에 따라 가격 포맷
+                    if show_krw:
+                        # 원화 표시
+                        price_krw = price_usd * usd_krw_rate
+                        if price_krw < 1000:
+                            price_str = f"₩{price_krw:,.2f}"
+                        else:
+                            price_str = f"₩{price_krw:,.0f}"
+                        logger.debug(f"Dashboard {matched_symbol}: KRW mode - ${price_usd:,.2f} → {price_str}")
+                    else:
+                        # 달러 표시 (천 단위 콤마 + 소숫점 2자리 항상 유지)
+                        if price_usd < 1:
+                            price_str = f"${price_usd:.4f}"
+                        else:
+                            price_str = f"${price_usd:,.2f}"  # 모든 경우 소숫점 2자리
+                        logger.debug(f"Dashboard {matched_symbol}: USD mode - {price_str}")
+                    
+                    coin_metrics.append({
+                        "label": f"{name} ({matched_symbol})",
+                        "value": price_str,
+                        "delta": change_24h,
+                        "card_id": f"coin-{matched_symbol.lower()}-card"
+                    })
 
-            render_metric_card_group(
-                title="개별 코인 추세",
-                metrics=coin_metrics,
-                columns=5
-            )
+            if coin_metrics:
+                # 토글 콜백
+                def toggle_currency():
+                    st.session_state.show_krw = st.session_state.krw_toggle
+                
+                # 타이틀과 토글 컨테이너를 HTML로 배치 ("Powered by CoinGecko" 방식 참조)
+                st.markdown("""
+                <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;'>
+                    <div style='color: #66686a; font-size: 14px; font-weight: 600;'>개별 코인 추세 (24h 변동)</div>
+                    <div></div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # 토글 스위치 (Streamlit 위젯)
+                st.toggle("KRW", value=st.session_state.show_krw, key="krw_toggle", on_change=toggle_currency)
+                
+                # Hidden div for currency mode (JavaScript가 읽음)
+                st.markdown(f'<div id="currency-mode" data-krw="{st.session_state.show_krw}" style="display:none;"></div>', unsafe_allow_html=True)
+                
+                # 메트릭 카드 렌더링 (title 없이)
+                cols = st.columns(5, gap="small")
+                for idx, metric in enumerate(coin_metrics):
+                    col_idx = idx % 5
+                    with cols[col_idx]:
+                        from presentation.components.metric_cards import render_metric_card
+                        render_metric_card(
+                            label=metric.get("label", ""),
+                            value=metric.get("value", "N/A"),
+                            delta=metric.get("delta", None),
+                            card_id=metric.get("card_id", None)
+                        )
+            else:
+                st.info("표시할 코인 데이터가 없습니다.")
         else:
             st.info("코인 데이터를 가져올 수 없습니다.")
 

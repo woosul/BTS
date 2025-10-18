@@ -35,7 +35,18 @@ if [ ! -d ".venv" ]; then
     exit 1
 fi
 
+# Rotate log file if it exists and is larger than 1MB (1000 lines ~ 1MB)
+if [ -f "streamlit.log" ]; then
+    LINE_COUNT=$(wc -l < streamlit.log)
+    if [ "$LINE_COUNT" -gt 1000 ]; then
+        echo "Log file has $LINE_COUNT lines. Rotating to keep last 1000 lines..."
+        tail -n 1000 streamlit.log > streamlit.log.tmp && mv streamlit.log.tmp streamlit.log
+        echo "Log rotation complete."
+    fi
+fi
+
 # Start the new Streamlit process in SPA mode using full venv path
+# Executing task: source .venv/bin/activate && streamlit run presentation/streamlit_app.py 
 echo "Starting new Streamlit process (SPA mode)..."
 STREAMLIT_EMAIL="" "$SCRIPT_DIR/.venv/bin/python" -m streamlit run presentation/streamlit_app.py --server.headless=true > streamlit.log 2>&1 &
 

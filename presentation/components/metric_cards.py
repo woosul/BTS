@@ -105,7 +105,8 @@ def render_metric_card(
 def render_metric_card_group(
     title: str,
     metrics: list[dict],
-    columns: int = 5
+    columns: int = 5,
+    attribution: str = None
 ):
     """
     메트릭 카드 그룹 렌더링
@@ -114,10 +115,20 @@ def render_metric_card_group(
         title: 그룹 제목
         metrics: 메트릭 리스트 [{"label": "...", "value": "...", "delta": ..., "card_id": "..."}, ...]
         columns: 열 개수
+        attribution: 우측에 표시할 attribution 텍스트 (HTML 지원)
     """
     # 그룹 제목 - deep gray, no bold (default color is #54A0FD)
     if title:
-        st.markdown(f"<div style='color: #66686a; font-size: 14px; font-weight: 600; margin-bottom: 8px;'>{title}</div>", unsafe_allow_html=True)
+        if attribution:
+            # 타이틀과 attribution을 flexbox로 양쪽 정렬
+            st.markdown(f"""
+                <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;'>
+                    <div style='color: #66686a; font-size: 14px; font-weight: 600;'>{title}</div>
+                    <div style='color: #808080; font-size: 11px;'>{attribution}</div>
+                </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"<div style='color: #66686a; font-size: 14px; font-weight: 600; margin-bottom: 8px;'>{title}</div>", unsafe_allow_html=True)
 
     # 카드를 st.columns로 배치 (gap 설정)
     cols = st.columns(columns, gap="small")  # small gap ≈ 12px

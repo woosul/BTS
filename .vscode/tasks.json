@@ -33,6 +33,34 @@
             }
         },
         {
+            "label": "Streamlit 재시작 (자동 종료 후 실행)",
+            "type": "shell",
+            "command": "pkill -f 'streamlit run.*streamlit_app.py' || true; sleep 1; source .venv/bin/activate && streamlit run presentation/streamlit_app.py",
+            "problemMatcher": [],
+            "isBackground": true,
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "focus": true,
+                "clear": false
+            },
+            "runOptions": {
+                "instanceLimit": 1
+            }
+        },
+        {
+            "label": "Streamlit 종료",
+            "type": "shell",
+            "command": "./stop_streamlit.sh",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "focus": true,
+                "clear": false
+            }
+        },
+        {
             "label": "터미널 실행로그 보기",
             "type": "shell",
             "command": "tail -f logs/bts.log",

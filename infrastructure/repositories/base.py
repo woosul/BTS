@@ -51,6 +51,14 @@ class BaseRepository(Generic[ModelType]):
             DatabaseError: 생성 실패 시
         """
         try:
+            # 시간 필드를 명시적으로 로컬 시간으로 설정
+            from datetime import datetime
+            now = datetime.now()
+            if 'created_at' not in kwargs:
+                kwargs['created_at'] = now
+            if 'updated_at' not in kwargs:
+                kwargs['updated_at'] = now
+            
             instance = self.model(**kwargs)
             self.db.add(instance)
             self.db.commit()
@@ -60,7 +68,7 @@ class BaseRepository(Generic[ModelType]):
         except Exception as e:
             self.db.rollback()
             logger.error(f"{self.model.__name__} 생성 실패: {e}")
-            raise DatabaseError(f"레코드 생성 실패", {"error": str(e)})
+            raise DatabaseError("레코드 생성 실패", {"error": str(e)}) from e
 
     def bulk_create(self, items: List[dict]) -> List[ModelType]:
         """
@@ -73,6 +81,16 @@ class BaseRepository(Generic[ModelType]):
             List[ModelType]: 생성된 모델 인스턴스 목록
         """
         try:
+            # 시간 필드를 명시적으로 로컬 시간으로 설정
+            from datetime import datetime
+            now = datetime.now()
+            
+            for item in items:
+                if 'created_at' not in item:
+                    item['created_at'] = now
+                if 'updated_at' not in item:
+                    item['updated_at'] = now
+            
             instances = [self.model(**item) for item in items]
             self.db.add_all(instances)
             self.db.commit()
@@ -83,10 +101,10 @@ class BaseRepository(Generic[ModelType]):
         except Exception as e:
             self.db.rollback()
             logger.error(f"{self.model.__name__} 일괄 생성 실패: {e}")
-            raise DatabaseError(f"일괄 생성 실패", {"error": str(e)})
+            raise DatabaseError("일괄 생성 실패", {"error": str(e)}) from e
 
     # ===== READ =====
-    def get_by_id(self, id: int) -> Optional[ModelType]:
+    def get_by_id(self, record_id: int) -> Optional[ModelType]:
         """
         ID로 레코드 조회
 
@@ -97,19 +115,19 @@ class BaseRepository(Generic[ModelType]):
             Optional[ModelType]: 모델 인스턴스 또는 None
         """
         try:
-            stmt = select(self.model).where(self.model.id == id)
+            stmt = select(self.model).where(self.model.id == record_id)
             result = self.db.execute(stmt).scalar_one_or_none()
             return result
         except Exception as e:
             logger.error(f"{self.model.__name__} 조회 실패 (id={id}): {e}")
-            raise DatabaseError(f"레코드 조회 실패", {"id": id, "error": str(e)})
+            raise DatabaseError("레코드 조회 실패", {"id": record_id, "error": str(e)}) from e
 
-    def get_by_id_or_raise(self, id: int) -> ModelType:
+    def get_by_id_or_raise(self, record_id: int) -> ModelType:
         """
         ID로 레코드 조회 (없으면 예외 발생)
 
         Args:
-            id: 레코드 ID
+            record_id: 레코드 ID
 
         Returns:
             ModelType: 모델 인스턴스
@@ -117,7 +135,7 @@ class BaseRepository(Generic[ModelType]):
         Raises:
             RecordNotFoundError: 레코드를 찾을 수 없는 경우
         """
-        instance = self.get_by_id(id)
+        instance = self.get_by_id(record_id)
         if instance is None:
             raise RecordNotFoundError(
                 f"{self.model.__name__}을(를) 찾을 수 없습니다",
@@ -153,7 +171,7 @@ class BaseRepository(Generic[ModelType]):
             return list(result)
         except Exception as e:
             logger.error(f"{self.model.__name__} 목록 조회 실패: {e}")
-            raise DatabaseError(f"목록 조회 실패", {"error": str(e)})
+            raise DatabaseError("목록 조회 실패", {"error": str(e)}) from e
 
     def get_by_field(self, field_name: str, value: Any) -> Optional[ModelType]:
         """
@@ -174,9 +192,9 @@ class BaseRepository(Generic[ModelType]):
         except Exception as e:
             logger.error(f"{self.model.__name__} 조회 실패 ({field_name}={value}): {e}")
             raise DatabaseError(
-                f"레코드 조회 실패",
+                "레코드 조회 실패",
                 {"field": field_name, "value": value, "error": str(e)}
-            )
+            ) from e
 
     def filter_by(self, **filters) -> List[ModelType]:
         """
@@ -197,7 +215,7 @@ class BaseRepository(Generic[ModelType]):
             return list(result)
         except Exception as e:
             logger.error(f"{self.model.__name__} 필터 조회 실패: {e}")
-            raise DatabaseError(f"필터 조회 실패", {"filters": filters, "error": str(e)})
+            raise DatabaseError("필터 조회 실패", {"filters": filters, "error": str(e)}) from e
 
     def count(self, **filters) -> int:
         """
@@ -218,27 +236,27 @@ class BaseRepository(Generic[ModelType]):
             return len(result)
         except Exception as e:
             logger.error(f"{self.model.__name__} 카운트 실패: {e}")
-            raise DatabaseError(f"카운트 실패", {"error": str(e)})
+            raise DatabaseError("카운트 실패", {"error": str(e)}) from e
 
-    def exists(self, id: int) -> bool:
+    def exists(self, record_id: int) -> bool:
         """
         레코드 존재 여부 확인
 
         Args:
-            id: 레코드 ID
+            record_id: 레코드 ID
 
         Returns:
             bool: 존재 여부
         """
-        return self.get_by_id(id) is not None
+        return self.get_by_id(record_id) is not None
 
     # ===== UPDATE =====
-    def update(self, id: int, **kwargs) -> ModelType:
+    def update(self, record_id: int, **kwargs) -> ModelType:
         """
         레코드 업데이트
 
         Args:
-            id: 레코드 ID
+            record_id: 레코드 ID
             **kwargs: 업데이트할 필드 값
 
         Returns:
@@ -248,7 +266,12 @@ class BaseRepository(Generic[ModelType]):
             RecordNotFoundError: 레코드를 찾을 수 없는 경우
         """
         try:
-            instance = self.get_by_id_or_raise(id)
+            instance = self.get_by_id_or_raise(record_id)
+            
+            # updated_at을 명시적으로 로컬 시간으로 설정
+            from datetime import datetime
+            if 'updated_at' not in kwargs:
+                kwargs['updated_at'] = datetime.now()
 
             for key, value in kwargs.items():
                 if hasattr(instance, key):
@@ -263,7 +286,7 @@ class BaseRepository(Generic[ModelType]):
         except Exception as e:
             self.db.rollback()
             logger.error(f"{self.model.__name__} 업데이트 실패 (id={id}): {e}")
-            raise DatabaseError(f"업데이트 실패", {"id": id, "error": str(e)})
+            raise DatabaseError("업데이트 실패", {"id": record_id, "error": str(e)}) from e
 
     def bulk_update(self, updates: List[dict]) -> int:
         """
@@ -278,10 +301,10 @@ class BaseRepository(Generic[ModelType]):
         try:
             count = 0
             for item in updates:
-                id = item.pop("id")
+                record_id = item.pop("id")
                 stmt = (
                     update(self.model)
-                    .where(self.model.id == id)
+                    .where(self.model.id == record_id)
                     .values(**item)
                 )
                 result = self.db.execute(stmt)
@@ -293,15 +316,15 @@ class BaseRepository(Generic[ModelType]):
         except Exception as e:
             self.db.rollback()
             logger.error(f"{self.model.__name__} 일괄 업데이트 실패: {e}")
-            raise DatabaseError(f"일괄 업데이트 실패", {"error": str(e)})
+            raise DatabaseError("일괄 업데이트 실패", {"error": str(e)}) from e
 
     # ===== DELETE =====
-    def delete(self, id: int) -> bool:
+    def delete(self, record_id: int) -> bool:
         """
         레코드 삭제
 
         Args:
-            id: 레코드 ID
+            record_id: 레코드 ID
 
         Returns:
             bool: 삭제 성공 여부
@@ -310,17 +333,17 @@ class BaseRepository(Generic[ModelType]):
             RecordNotFoundError: 레코드를 찾을 수 없는 경우
         """
         try:
-            instance = self.get_by_id_or_raise(id)
+            instance = self.get_by_id_or_raise(record_id)
             self.db.delete(instance)
             self.db.commit()
-            logger.info(f"{self.model.__name__} 삭제 완료: id={id}")
+            logger.info(f"{self.model.__name__} 삭제 완료: id={record_id}")
             return True
         except RecordNotFoundError:
             raise
         except Exception as e:
             self.db.rollback()
             logger.error(f"{self.model.__name__} 삭제 실패 (id={id}): {e}")
-            raise DatabaseError(f"삭제 실패", {"id": id, "error": str(e)})
+            raise DatabaseError("삭제 실패", {"id": record_id, "error": str(e)}) from e
 
     def delete_by_field(self, field_name: str, value: Any) -> int:
         """
@@ -345,9 +368,9 @@ class BaseRepository(Generic[ModelType]):
             self.db.rollback()
             logger.error(f"{self.model.__name__} 삭제 실패 ({field_name}={value}): {e}")
             raise DatabaseError(
-                f"삭제 실패",
+                "삭제 실패",
                 {"field": field_name, "value": value, "error": str(e)}
-            )
+            ) from e
 
     # ===== 유틸리티 =====
     def refresh(self, instance: ModelType) -> ModelType:
@@ -370,7 +393,7 @@ class BaseRepository(Generic[ModelType]):
         except Exception as e:
             self.db.rollback()
             logger.error(f"커밋 실패: {e}")
-            raise DatabaseError(f"커밋 실패", {"error": str(e)})
+            raise DatabaseError("커밋 실패", {"error": str(e)}) from e
 
     def rollback(self) -> None:
         """트랜잭션 롤백"""

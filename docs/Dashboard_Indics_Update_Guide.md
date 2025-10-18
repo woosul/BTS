@@ -167,7 +167,7 @@ WEBSOCKET_UPDATE_INTERVAL = 5  # 5초마다 클라이언트에 전송
       "total_market_cap_usd": 3888590205326,
       "btc_dominance": 57.08
     },
-    "coingecko_top_coins": [...]
+    "top_coins": [...]  // Binance 또는 CoinGecko 데이터
   }
 }
 ```

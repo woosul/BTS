@@ -1,0 +1,13 @@
+[tool.pyright]
+# 타입 체크 모드: basic (엄격하지 않음)
+typeCheckingMode = "basic"
+
+# 특정 타입 에러만 무시 (딕셔너리 타입 추론 문제)
+reportGeneralTypeIssues = "none"
+reportOptionalMemberAccess = "warning"
+reportOptionalSubscript = "warning"
+reportUnboundVariable = "error"
+reportUndefinedVariable = "error"
+
+[tool.pylint]
+max-line-length = 180

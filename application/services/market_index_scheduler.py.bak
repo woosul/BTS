@@ -45,7 +45,7 @@ class MarketIndexScheduler:
         self.last_update_time = None
         self.health_check_interval = 30  # 30초마다 헬스체크
         self.client_info = {}  # 클라이언트별 정보 저장
-        self.min_update_interval = self.config.SAFE_UPBIT_SCRAPING  # 시스템 최소 업데이트 간격 (6초)
+        self.min_update_interval = self.config.SYSTEM_MIN_UPDATE_INTERVAL  # 시스템 최소 업데이트 간격
 
     # ===== 스케줄러 =====
 
@@ -59,45 +59,6 @@ class MarketIndexScheduler:
             return data.isoformat()
         else:
             return data
-
-    def _format_coin_data_for_websocket(self, coin_data: list, usd_krw_rate: float = 1400.0) -> list:
-        """
-        코인 데이터에 포맷팅된 가격 필드 추가 (WebSocket 전송용)
-        
-        Args:
-            coin_data: 코인 데이터 리스트
-            usd_krw_rate: USD/KRW 환율
-            
-        Returns:
-            list: 포맷팅된 코인 데이터 리스트
-        """
-        if not coin_data or not isinstance(coin_data, list):
-            return []
-        
-        formatted_coins = []
-        for coin in coin_data:
-            # 원본 데이터 복사
-            formatted_coin = dict(coin)
-            
-            # USD 가격 추출
-            price_usd = float(coin.get('current_price', 0))
-            
-            # USD 포맷팅 (천 단위 콤마)
-            if price_usd < 1:
-                formatted_coin['price_usd_formatted'] = f"${price_usd:.4f}"
-            else:
-                formatted_coin['price_usd_formatted'] = f"${price_usd:,.2f}"
-            
-            # KRW 환산 및 포맷팅 (천 단위 콤마)
-            price_krw = price_usd * usd_krw_rate
-            if price_krw < 1000:
-                formatted_coin['price_krw_formatted'] = f"₩{price_krw:,.2f}"
-            else:
-                formatted_coin['price_krw_formatted'] = f"₩{price_krw:,.0f}"
-            
-            formatted_coins.append(formatted_coin)
-        
-        return formatted_coins
 
     def update_all_indices(self):
         """모든 지수 업데이트 (개선된 버전)"""
@@ -117,17 +78,13 @@ class MarketIndexScheduler:
             upbit_data = self._get_upbit_data_from_db()
             usd_data = self._get_usd_krw_data_from_db()
             global_data = self._get_global_data_from_db()
-            coin_data = self._get_coin_data_from_db()
-
-            # 코인 데이터 포맷팅 (WebSocket 전송용 가격 문자열 추가)
-            usd_krw_rate = usd_data.get('value', 1400.0) if isinstance(usd_data, dict) else 1400.0
-            coin_data = self._format_coin_data_for_websocket(coin_data, usd_krw_rate)
+            coingecko_data = self._get_coingecko_data_from_db()
 
             # datetime 객체 직렬화
             upbit_data = self._serialize_data(upbit_data)
             usd_data = self._serialize_data(usd_data)
             global_data = self._serialize_data(global_data)
-            coin_data = self._serialize_data(coin_data)
+            coingecko_data = self._serialize_data(coingecko_data)
 
             # JSON 메시지 구성
             message_data = {
@@ -138,7 +95,7 @@ class MarketIndexScheduler:
                     "upbit": upbit_data,
                     "usd_krw": usd_data,
                     "global": global_data,
-                    "top_coins": coin_data
+                    "coingecko_top_coins": coingecko_data
                 }
             }
             message_json = json.dumps(message_data, ensure_ascii=False)
@@ -180,9 +137,9 @@ class MarketIndexScheduler:
     def run_scheduler(self):
         """스케줄러 메인 루프 - 듀얼 스레드 데이터 수집 + 페이지별 차등 WebSocket 전송"""
         logger.info("✓ 듀얼 스레드 스케줄러 시작:")
-        logger.info(f"  - 업비트 지수 + USD/KRW: {self.config.SAFE_UPBIT_SCRAPING}초 간격 (실시간)")
-        logger.info(f"  - 글로벌 지수: {self.config.SAFE_COINGECKO}초 간격 (실시간)")
-        logger.info("  - WebSocket 전송: 페이지별 차등 전송 전략 적용")
+        logger.info(f"  - 업비트 지수 + USD/KRW: {MarketIndexConfig.UPDATE_INTERVAL_UPBIT_SCRAPING}초 간격 (실시간)")
+        logger.info(f"  - 글로벌 지수: {MarketIndexConfig.UPDATE_INTERVAL_COINGECKO}초 간격 (실시간)")
+        logger.info(f"  - WebSocket 전송: 페이지별 차등 전송 전략 적용")
         
         # 활성화된 페이지 전략 출력
         for page, strategy in MarketIndexConfig.WEBSOCKET_PAGE_STRATEGIES.items():
@@ -277,47 +234,15 @@ class MarketIndexScheduler:
 
                     logger.info(f"[글로벌 업데이터] 글로벌 지수 수집 시작 (간격: {interval}초)")
 
-                    # 글로벌 지수 수집 및 저장 (CoinGecko만 제공)
+                    # 글로벌 지수 수집 및 저장
                     data = self.service.get_global_crypto_data()
                     if self._validate_collected_data(data, "글로벌 데이터"):
                         self._save_global_data(data)
 
-                    logger.info(f"[글로벌 업데이터] 🔍 코인 데이터 수집 시작 (ENABLE_BINANCE_API={self.config.ENABLE_BINANCE_API})")
-                    
-                    # 코인 데이터 수집 (Binance Primary, CoinGecko Fallback)
-                    coin_data = None
-                    api_source = 'unknown'
-                    
-                    # 1. Binance 시도 (Primary)
-                    if self.config.ENABLE_BINANCE_API:
-                        try:
-                            from infrastructure.exchanges.binance_service import BinanceService
-                            binance = BinanceService()
-                            coin_data = binance.get_top_coins_data(limit=self.config.BINANCE_TOP_COINS_LIMIT)
-                            if coin_data and len(coin_data) > 0:
-                                api_source = 'binance'
-                                logger.info(f"[글로벌 업데이터] Binance에서 {len(coin_data)}개 코인 수집 완료")
-                        except Exception as e:
-                            logger.warning(f"[글로벌 업데이터] Binance 실패: {e}")
-                    
-                    # 2. CoinGecko Fallback
-                    if not coin_data or len(coin_data) == 0:
-                        if self.config.ENABLE_COINGECKO_API:
-                            logger.info("[글로벌 업데이터] Binance 실패 - CoinGecko Fallback")
-                            coingecko_data = self.service.get_top_coins_with_sparkline(limit=10)
-                            if coingecko_data and len(coingecko_data) > 0:
-                                # CoinGecko 데이터를 Binance 표준 포맷으로 변환
-                                coin_data = self._convert_coingecko_to_binance_format(coingecko_data)
-                                api_source = 'coingecko'
-                                logger.info(f"[글로벌 업데이터] CoinGecko에서 {len(coin_data)}개 코인 수집 완료 (Binance 포맷으로 변환)")
-                    
-                    # 3. 데이터 저장
-                    logger.info(f"[글로벌 업데이터] 🔍 데이터 저장 시도: coin_data={type(coin_data)}, len={len(coin_data) if coin_data else 0}, api_source={api_source}")
-                    if self._validate_collected_data(coin_data, f"코인 데이터 ({api_source})"):
-                        logger.info(f"[글로벌 업데이터] ✅ 검증 통과 - 저장 시작")
-                        self._save_coin_data(coin_data, api_source)
-                    else:
-                        logger.warning(f"[글로벌 업데이터] ❌ 검증 실패 - 저장 건너뜀")
+                    # 코인게코 상위 코인 수집 및 저장
+                    coin_data = self.service.get_top_coins_with_sparkline(limit=10)
+                    if self._validate_collected_data(coin_data, "코인게코 데이터"):
+                        self._save_coingecko_data(coin_data)
 
                     duration = (datetime.now() - start_time).total_seconds()
                     logger.info(f"[글로벌 업데이터] 완료 (소요시간: {duration:.2f}초)")
@@ -351,9 +276,9 @@ class MarketIndexScheduler:
             thread.start()
 
         logger.info("[SCHEDULER] 듀얼 스레드 데이터 수집 시스템 시작됨:")
-        logger.info(f"  - 업비트 지수 + USD/KRW: {self.config.SAFE_UPBIT_SCRAPING}초")
-        logger.info(f"  - 글로벌 지수: {self.config.SAFE_COINGECKO}초")
-        logger.info(f"  - WebSocket 전송: {self.config.WEBSOCKET_UPDATE_INTERVAL}초")
+        logger.info(f"  - 업비트 지수 + USD/KRW: {MarketIndexConfig.UPDATE_INTERVAL_UPBIT_SCRAPING}초")
+        logger.info(f"  - 글로벌 지수: {MarketIndexConfig.UPDATE_INTERVAL_COINGECKO}초")
+        logger.info(f"  - WebSocket 전송: {MarketIndexConfig.WEBSOCKET_UPDATE_INTERVAL}초")
 
     def _calculate_next_sleep_time(self, last_send_times: dict) -> float:
         """다음 전송까지 대기할 시간 계산 (초 단위)
@@ -415,11 +340,6 @@ class MarketIndexScheduler:
             last_send_times: 페이지별 마지막 전송 시간 딕셔너리
             force_send: 강제 전송 여부 (시작 시)
         """
-        # WebSocket 전송이 비활성화되어 있으면 전송하지 않음
-        if not self._is_websocket_enabled():
-            logger.debug("[WebSocket] 전송 비활성화됨 (user_settings에서 OFF)")
-            return
-        
         current_time = time.time()
         
         # 페이지별 클라이언트 그룹 분류
@@ -444,12 +364,7 @@ class MarketIndexScheduler:
             if not strategy['enabled']:
                 continue
             
-            # Dashboard 페이지는 user_settings에서 간격 가져오기
-            if page == 'dashboard':
-                interval = self._get_dashboard_websocket_interval()
-            else:
-                interval = strategy['interval']
-            
+            interval = strategy['interval']
             last_send = last_send_times.get(page, 0)
             
             # 전송 시간이 되었는지 확인
@@ -468,17 +383,13 @@ class MarketIndexScheduler:
         upbit_data = self._get_upbit_data_from_db()
         usd_data = self._get_usd_krw_data_from_db()
         global_data = self._get_global_data_from_db()
-        coin_data = self._get_coin_data_from_db()
-
-        # 코인 데이터 포맷팅 (WebSocket 전송용 가격 문자열 추가)
-        usd_krw_rate = usd_data.get('value', 1400.0) if isinstance(usd_data, dict) else 1400.0
-        coin_data = self._format_coin_data_for_websocket(coin_data, usd_krw_rate)
+        coingecko_data = self._get_coingecko_data_from_db()
 
         # datetime 객체 직렬화
         upbit_data = self._serialize_data(upbit_data)
         usd_data = self._serialize_data(usd_data)
         global_data = self._serialize_data(global_data)
-        coin_data = self._serialize_data(coin_data)
+        coingecko_data = self._serialize_data(coingecko_data)
 
         # 메시지 구성
         message = {
@@ -488,7 +399,7 @@ class MarketIndexScheduler:
                 'upbit': upbit_data,
                 'usd_krw': usd_data,
                 'global': global_data,
-                'top_coins': coin_data
+                'coingecko_top_coins': coingecko_data
             }
         }
         
@@ -550,17 +461,13 @@ class MarketIndexScheduler:
             upbit_data = self._get_upbit_data_from_db()
             usd_data = self._get_usd_krw_data_from_db()
             global_data = self._get_global_data_from_db()
-            coin_data = self._get_coin_data_from_db()
-
-            # 코인 데이터 포맷팅 (WebSocket 전송용 가격 문자열 추가)
-            usd_krw_rate = usd_data.get('value', 1400.0) if isinstance(usd_data, dict) else 1400.0
-            coin_data = self._format_coin_data_for_websocket(coin_data, usd_krw_rate)
+            coingecko_data = self._get_coingecko_data_from_db()
 
             # datetime 객체 직렬화
             upbit_data = self._serialize_data(upbit_data)
             usd_data = self._serialize_data(usd_data)
             global_data = self._serialize_data(global_data)
-            coin_data = self._serialize_data(coin_data)
+            coingecko_data = self._serialize_data(coingecko_data)
 
             # 메시지 구성
             message = {
@@ -570,7 +477,7 @@ class MarketIndexScheduler:
                     'upbit': upbit_data,
                     'usd_krw': usd_data,
                     'global': global_data,
-                    'top_coins': coin_data
+                    'coingecko_top_coins': coingecko_data
                 }
             }
 
@@ -587,45 +494,6 @@ class MarketIndexScheduler:
                            if info.get('page') == 'dashboard' and ws in self.connected_clients]
         return len(dashboard_clients) > 0
 
-    def _is_websocket_enabled(self) -> bool:
-        """WebSocket 전송이 활성화되어 있는지 확인 (UserSettings에서)"""
-        try:
-            from infrastructure.repositories.user_settings_repository import UserSettingsRepository
-            from domain.entities.user_settings import UserSettings
-
-            settings_repo = UserSettingsRepository()
-            websocket_setting = settings_repo.get_by_key(UserSettings.WEBSOCKET_ENABLED)
-
-            if websocket_setting:
-                # 'True', 'true', '1' 등을 True로 인식
-                return websocket_setting.setting_value.lower() in ('true', '1', 'yes')
-            else:
-                # 기본값: WebSocket 활성화
-                return True
-
-        except Exception as e:
-            logger.error(f"WebSocket 활성화 여부 조회 실패: {e}")
-            return True  # 에러 시 기본적으로 활성화
-
-    def _get_dashboard_websocket_interval(self) -> int:
-        """Dashboard WebSocket 전송 간격 (UserSettings에서 가져오기)"""
-        try:
-            from infrastructure.repositories.user_settings_repository import UserSettingsRepository
-            from domain.entities.user_settings import UserSettings
-
-            settings_repo = UserSettingsRepository()
-            dashboard_setting = settings_repo.get_by_key(UserSettings.DASHBOARD_REFRESH_INTERVAL)
-
-            if dashboard_setting:
-                return int(dashboard_setting.setting_value)
-            else:
-                # 기본값: config의 dashboard 전략 interval
-                return MarketIndexConfig.WEBSOCKET_PAGE_STRATEGIES['dashboard']['interval']
-
-        except Exception as e:
-            logger.error(f"Dashboard WebSocket 간격 조회 실패: {e}")
-            return MarketIndexConfig.WEBSOCKET_PAGE_STRATEGIES['dashboard']['interval']
-
     def _get_background_interval(self) -> int:
         """백그라운드 모드 업데이트 간격 (UserSettings에서 가져오기)"""
         try:
@@ -638,23 +506,23 @@ class MarketIndexScheduler:
             if general_setting:
                 return int(general_setting.setting_value)
             else:
-                return int(self.config.BACKGROUND_UPDATE_INTERVAL)
+                return self.config.DEFAULT_BACKGROUND_UPDATE_INTERVAL
 
         except Exception as e:
             logger.error(f"백그라운드 간격 조회 실패: {e}")
-            return int(self.config.BACKGROUND_UPDATE_INTERVAL)
+            return self.config.DEFAULT_BACKGROUND_UPDATE_INTERVAL
 
     def _get_update_interval_for_upbit(self) -> int:
         """업비트 업데이트 간격 (Dashboard 활성 여부에 따라)"""
         if self._is_dashboard_active():
-            return int(self.config.SAFE_UPBIT_SCRAPING)  # 빠른 모드: 6초
+            return MarketIndexConfig.UPDATE_INTERVAL_UPBIT_SCRAPING  # 빠른 모드: 5초
         else:
             return self._get_background_interval()  # 느린 모드: 사용자 설정값
 
     def _get_update_interval_for_global(self) -> int:
         """글로벌 업데이트 간격 (Dashboard 활성 여부에 따라)"""
         if self._is_dashboard_active():
-            return int(self.config.SAFE_COINGECKO)  # 빠른 모드: 3초
+            return MarketIndexConfig.UPDATE_INTERVAL_COINGECKO  # 빠른 모드: 6초
         else:
             return self._get_background_interval()  # 느린 모드: 사용자 설정값
 
@@ -702,13 +570,13 @@ class MarketIndexScheduler:
                 return general_interval
 
             # 기본값 (최소값 보장)
-            default_interval = int(max(self.config.BACKGROUND_UPDATE_INTERVAL, self.min_update_interval))
+            default_interval = max(self.config.DEFAULT_UPDATE_INTERVAL_SECONDS, self.min_update_interval)
             logger.info(f"[SCHEDULER] 기본값 사용: {default_interval}초 간격")
             return default_interval
 
         except Exception as e:
             logger.error(f"동적 간격 계산 실패: {e}")
-            return int(max(self.config.BACKGROUND_UPDATE_INTERVAL, self.min_update_interval))
+            return max(self.config.DEFAULT_UPDATE_INTERVAL_SECONDS, self.min_update_interval)
 
     def start_scheduler(self):
         """스케줄러 시작"""
@@ -726,7 +594,6 @@ class MarketIndexScheduler:
         """WebSocket 클라이언트 연결 처리"""
         _ = path  # unused parameter
         client_address = getattr(websocket, 'remote_address', 'unknown')
-        
         self.connected_clients.add(websocket)
         logger.info(f"✓ WebSocket 클라이언트 연결: {client_address} (총 {len(self.connected_clients)}명)")
 
@@ -783,17 +650,13 @@ class MarketIndexScheduler:
             upbit_data = self._get_upbit_data_from_db()
             usd_data = self._get_usd_krw_data_from_db()
             global_data = self._get_global_data_from_db()
-            coin_data = self._get_coin_data_from_db()
-
-            # 코인 데이터 포맷팅 (WebSocket 전송용 가격 문자열 추가)
-            usd_krw_rate = usd_data.get('value', 1400.0) if isinstance(usd_data, dict) else 1400.0
-            coin_data = self._format_coin_data_for_websocket(coin_data, usd_krw_rate)
+            coingecko_data = self._get_coingecko_data_from_db()
 
             # datetime 객체 직렬화
             upbit_data = self._serialize_data(upbit_data)
             usd_data = self._serialize_data(usd_data)
             global_data = self._serialize_data(global_data)
-            coin_data = self._serialize_data(coin_data)
+            coingecko_data = self._serialize_data(coingecko_data)
 
             # JSON 메시지 구성
             message_data = {
@@ -803,7 +666,7 @@ class MarketIndexScheduler:
                     "upbit": upbit_data,
                     "usd_krw": usd_data,
                     "global": global_data,
-                    "top_coins": coin_data
+                    "coingecko_top_coins": coingecko_data
                 }
             }
             message_json = json.dumps(message_data, ensure_ascii=False)
@@ -1037,43 +900,6 @@ class MarketIndexScheduler:
                 logger.warning(f"[데이터 수집] ✗ {name} 실패 (소요시간: {duration:.2f}초): {e}")
             return False
 
-    def _convert_coingecko_to_binance_format(self, coingecko_data: list) -> list:
-        """
-        CoinGecko 데이터를 Binance 표준 포맷으로 변환
-        
-        Args:
-            coingecko_data: CoinGecko API 응답 데이터
-            
-        Returns:
-            Binance 표준 포맷 리스트
-        """
-        converted_data = []
-        
-        for coin in coingecko_data:
-            try:
-                # Binance 표준 포맷으로 변환
-                binance_format = {
-                    'id': coin.get('id', '').lower(),
-                    'symbol': coin.get('symbol', '').upper(),
-                    'name': coin.get('name', ''),
-                    'current_price': float(coin.get('current_price', 0)),
-                    'price_change_24h': 0.0,  # CoinGecko는 제공하지 않음
-                    'price_change_percentage_24h': float(coin.get('price_change_percentage_24h', 0)),
-                    'high_24h': 0.0,  # CoinGecko는 제공하지 않음
-                    'low_24h': 0.0,   # CoinGecko는 제공하지 않음
-                    'total_volume': 0.0,  # CoinGecko는 제공하지 않음 (다른 필드명)
-                    'market_cap': float(coin.get('market_cap', 0)),
-                    'last_updated': datetime.now().isoformat(),
-                    'source': 'coingecko'  # 출처 표시
-                }
-                converted_data.append(binance_format)
-            except Exception as e:
-                logger.warning(f"[포맷 변환] {coin.get('symbol', 'Unknown')} 변환 실패: {e}")
-                continue
-        
-        logger.info(f"[포맷 변환] CoinGecko → Binance 포맷: {len(converted_data)}개 변환 완료")
-        return converted_data
-
     def _validate_collected_data(self, data, source_name: str) -> bool:
         """수집된 데이터의 유효성 검증"""
         if not data:
@@ -1081,8 +907,8 @@ class MarketIndexScheduler:
             return False
             
         if not isinstance(data, dict):
-            # 코인 데이터는 리스트일 수 있음 (Binance, CoinGecko)
-            if isinstance(data, list) and ("코인" in source_name or "binance" in source_name.lower() or "coingecko" in source_name.lower()):
+            # 코인게코 데이터는 리스트일 수 있음
+            if source_name == "코인게코 데이터" and isinstance(data, list):
                 result = len(data) > 0 and all(isinstance(item, dict) for item in data)
                 logger.info(f"[데이터 검증] {source_name}: 리스트 검증 결과={result}, 길이={len(data)}")
                 return result
@@ -1225,36 +1051,25 @@ class MarketIndexScheduler:
                         'index_type': MarketIndex.TYPE_GLOBAL,
                         'code': 'total_market_cap',
                         'name': '총 시가총액',
-                        'value': data.get('total_market_cap_usd', 0),
-                        'change_rate': 0.0  # 시가총액 자체는 변동률 없음
+                        'value': data.get('total_market_cap_usd', 0)
                     },
                     {
                         'index_type': MarketIndex.TYPE_GLOBAL,
                         'code': 'total_volume',
                         'name': '총 거래량',
-                        'value': data.get('total_volume_usd', 0),
-                        'change_rate': 0.0  # 거래량 자체는 변동률 없음
+                        'value': data.get('total_volume_usd', 0)
                     },
                     {
                         'index_type': MarketIndex.TYPE_GLOBAL,
                         'code': 'btc_dominance',
                         'name': 'BTC 도미넌스',
-                        'value': data.get('btc_dominance', 0),
-                        'change_rate': 0.0  # 도미넌스 자체는 변동률 없음
+                        'value': data.get('btc_dominance', 0)
                     },
                     {
                         'index_type': MarketIndex.TYPE_GLOBAL,
                         'code': 'market_cap_change_24h',
                         'name': '시가총액 24h 변동',
-                        'value': data.get('market_cap_change_24h', 0),
-                        'change_rate': data.get('market_cap_change_24h', 0)  # 변동률 저장
-                    },
-                    {
-                        'index_type': MarketIndex.TYPE_GLOBAL,
-                        'code': 'volume_to_market_cap_ratio',
-                        'name': '거래량-시가총액 비율',
-                        'value': data.get('volume_to_market_cap_ratio', 0),
-                        'change_rate': 0.0  # 비율 자체는 변동률 없음
+                        'value': data.get('market_cap_change_24h', 0)
                     }
                 ]
                 
@@ -1270,31 +1085,17 @@ class MarketIndexScheduler:
             logger.error(f"[DB 저장] ✗ 글로벌 데이터 저장 실패 (소요시간: {save_duration:.3f}초): {e}")
 
     def _save_coingecko_data(self, data: list):
-        """
-        CoinGecko 톱 코인 데이터 DB 저장
-        
-        범용 top_coins 코드 + api_source='coingecko'로 저장
-        """
-        self._save_coin_data(data, 'coingecko')
-    
-    def _save_coin_data(self, data: list, api_source: str = 'coingecko'):
-        """
-        코인 데이터 DB 저장 (범용 메서드)
-        
-        Args:
-            data: 코인 데이터 리스트
-            api_source: API 소스 ('binance' or 'coingecko')
-        """
+        """코인게코 톱 코인 데이터 DB 저장 (검증 강화)"""
         if not data or not isinstance(data, list):
-            logger.warning(f"[DB 저장] {api_source.upper()} 데이터가 비어있음")
+            logger.warning("[DB 저장] 코인게코 데이터가 비어있음")
             return
 
         save_start = datetime.now()
         try:
-            # 데이터 내용 상세 로깅
+            # 데이터 내용 상세 로깅 (디버깅용)
             coin_names = [coin.get('symbol', 'unknown').upper() for coin in data[:5]] if data else []
             coin_prices = [coin.get('current_price', 0) for coin in data[:5]] if data else []
-            logger.info(f"[DB 저장] {api_source.upper()} 데이터 수신: {len(data)}개 코인")
+            logger.info(f"[DB 저장] 코인게코 데이터 수신: {len(data)}개 코인")
             logger.info(f"[DB 저장] 상위 5개 코인: {coin_names}, 가격: {coin_prices}")
             
             # 전역 엔진 사용으로 성능 최적화
@@ -1304,30 +1105,29 @@ class MarketIndexScheduler:
             try:
                 repo = MarketIndexRepository(session)
                 
-                # 범용 top_coins 코드로 저장 (api_source로 구분)
+                # 코인게코 상위 코인을 단일 레코드로 저장
                 coin_data = {
                     'index_type': 'coin',
-                    'code': 'top_coins',
-                    'api_source': api_source,
-                    'name': f'상위 코인 ({api_source.upper()})',
+                    'code': 'coingecko_top_coins',
+                    'name': 'CoinGecko 상위 코인',
                     'value': len(data),  # 코인 개수
                     'change': 0.0,
                     'change_rate': 0.0,
-                    'extra_data': json.dumps(data),
+                    'extra_data': json.dumps(data),  # JSON 데이터는 extra_data에 저장
                     'ttl_seconds': 300  # 5분 TTL
                 }
                 
                 repo.bulk_upsert([coin_data])
                 save_duration = (datetime.now() - save_start).total_seconds()
-                logger.info(f"[DB 저장] ✓ {api_source.upper()} 데이터 저장 완료: {len(data)}개 코인 (소요시간: {save_duration:.3f}초)")
-                logger.debug(f"[DB 저장] 저장된 JSON 크기: {len(json.dumps(data))} bytes")
+                logger.info(f"[DB 저장] ✓ 코인게코 데이터 저장 완료: {len(data)}개 코인 (소요시간: {save_duration:.3f}초)")
+                logger.debug(f"[DB 저장] 저장된 JSON 데이터 타입: {type(data)}, 길이: {len(json.dumps(data))} bytes")
                 
             finally:
                 session.close()
                 
         except Exception as e:
             save_duration = (datetime.now() - save_start).total_seconds()
-            logger.error(f"[DB 저장] ✗ {api_source.upper()} 데이터 저장 실패 (소요시간: {save_duration:.3f}초): {e}")
+            logger.error(f"[DB 저장] ✗ 코인게코 데이터 저장 실패 (소요시간: {save_duration:.3f}초): {e}")
 
     def _get_upbit_data_from_db(self) -> dict:
         """DB에서 업비트 지수 데이터 조회"""
@@ -1416,9 +1216,6 @@ class MarketIndexScheduler:
                     elif idx.code == 'market_cap_change_24h':
                         result['market_cap_change_24h'] = float(idx.value)
                         data_count += 1
-                    elif idx.code == 'volume_to_market_cap_ratio':
-                        result['volume_to_market_cap_ratio'] = float(idx.value)
-                        data_count += 1
 
                 # 데이터 검증 상세 로깅
                 if data_count == 0:
@@ -1427,8 +1224,7 @@ class MarketIndexScheduler:
                     logger.debug(f"[WebSocket] 글로벌 데이터 조회 완료: {data_count}개 항목 - "
                                f"시가총액=${result.get('total_market_cap_usd', 0):,.0f}, "
                                f"거래량=${result.get('total_volume_usd', 0):,.0f}, "
-                               f"BTC도미넌스={result.get('btc_dominance', 0):.2f}%, "
-                               f"거래량-시가총액 비율={result.get('volume_to_market_cap_ratio', 0):.2f}%")
+                               f"BTC도미넌스={result.get('btc_dominance', 0):.2f}%")
 
                 return result
             finally:
@@ -1439,40 +1235,22 @@ class MarketIndexScheduler:
             return {'timestamp': datetime.now()}
 
     def _get_coingecko_data_from_db(self) -> list:
-        """
-        DB에서 코인게코 데이터 조회 (하위 호환용 alias)
-        
-        DEPRECATED: _get_coin_data_from_db() 사용 권장
-        """
-        return self._get_coin_data_from_db()
-
-    def _get_coin_data_from_db(self) -> list:
-        """
-        DB에서 코인 데이터 조회 (범용 메서드)
-        
-        Binance 우선, CoinGecko fallback으로 조회
-        
-        Returns:
-            list: 코인 데이터 리스트
-        """
+        """DB에서 코인게코 톱 코인 데이터 조회 (검증 강화)"""
         try:
+            # 전역 엔진 사용으로 성능 최적화
             Session = sessionmaker(bind=engine)
             session = Session()
 
             try:
                 repo = MarketIndexRepository(session)
-                
-                # 1. Binance 데이터 우선 조회 (Primary)
-                coin_data = repo.get_by_code_and_source('top_coins', 'binance')
-                
-                # 2. Binance 데이터 없으면 CoinGecko fallback
-                if not coin_data or not coin_data.extra_data:
-                    logger.debug("[WebSocket] Binance 데이터 없음 - CoinGecko fallback")
-                    coin_data = repo.get_by_code_and_source('top_coins', 'coingecko')
+                coin_data = repo.get_by_code('coingecko_top_coins')
 
                 if coin_data and coin_data.extra_data:
                     try:
-                        # extra_data에서 JSON 파싱
+                        # extra_data 타입 확인 로깅
+                        logger.debug(f"[WebSocket] extra_data 타입: {type(coin_data.extra_data)}")
+
+                        # extra_data에서 JSON 문자열을 파싱해서 코인 데이터 추출
                         parsed_data = json.loads(coin_data.extra_data)
 
                         # 중첩된 JSON 문자열인 경우 한번 더 파싱
@@ -1483,22 +1261,21 @@ class MarketIndexScheduler:
                         coin_count = len(parsed_data) if isinstance(parsed_data, list) else 0
                         if coin_count > 0 and isinstance(parsed_data, list):
                             coin_symbols = [coin.get('symbol', 'N/A').upper() for coin in parsed_data[:5]]
-                            api_source = coin_data.api_source or 'unknown'
-                            logger.info(f"[WebSocket] 코인 데이터 조회 완료 (소스: {api_source}): {coin_count}개 - 상위 5개: {coin_symbols}")
+                            logger.info(f"[WebSocket] 코인게코 데이터 조회 완료: {coin_count}개 코인 - 상위 5개: {coin_symbols}")
                         else:
-                            logger.warning(f"[WebSocket] 코인 데이터 형식 오류: 타입={type(parsed_data)}, 개수={coin_count}")
+                            logger.warning(f"[WebSocket] 코인게코 데이터 형식 오류: 타입={type(parsed_data)}, 개수={coin_count}")
                         return parsed_data
                     except json.JSONDecodeError as e:
-                        logger.warning(f"[WebSocket] 코인 데이터 JSON 파싱 실패: {e}")
+                        logger.warning(f"[WebSocket] 코인게코 데이터 JSON 파싱 실패: {e}")
                         return []
                 else:
-                    logger.warning("[WebSocket] 코인 데이터 DB에서 데이터 없음 (Binance/CoinGecko 모두)")
+                    logger.warning("[WebSocket] 코인게코 데이터 DB에서 데이터 없음")
                     return []
             finally:
                 session.close()
                 
         except Exception as e:
-            logger.error(f"[WebSocket] 코인 데이터 DB 조회 실패: {e}")
+            logger.error(f"[WebSocket] 코인게코 데이터 DB 조회 실패: {e}")
             return []
 
 

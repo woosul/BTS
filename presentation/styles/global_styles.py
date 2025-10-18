@@ -71,18 +71,18 @@ def apply_global_styles():
         margin-bottom: 4px !important;
     }
 
-    /* hover 상태 - 가장 연한 투명도 (40%) */
+    /* hover 상태 - Streamlit primaryColor 40% 투명도 사용 */
     [data-testid="stSidebarNav"] ul li a:hover {
-        background-color: rgba(0, 104, 201, 0.4) !important;
+        background-color: color-mix(in srgb, var(--primary-color) 40%, transparent) !important;
     }
 
-    /* select 상태 (클릭/포커스) - 중간 투명도 (70%) */
+    /* select 상태 (클릭/포커스) - Streamlit primaryColor 70% 투명도 사용 */
     [data-testid="stSidebarNav"] ul li a:focus,
     [data-testid="stSidebarNav"] ul li a:active {
-        background-color: rgba(0, 104, 201, 0.7) !important;
+        background-color: color-mix(in srgb, var(--primary-color) 70%, transparent) !important;
     }
 
-    /* active 상태 (현재 페이지) - 완전 불투명 (100%) */
+    /* active 상태 (현재 페이지) - Streamlit primaryColor 100% 사용 */
     [data-testid="stSidebarNav"] ul li a[aria-current="page"],
     [data-testid="stSidebarNav"] ul li a[data-selected="true"],
     [data-testid="stSidebarNav"] ul li a.selected,
@@ -92,7 +92,7 @@ def apply_global_styles():
     [data-testid="stSidebarNav"] ul li a.active,
     [data-testid="stSidebarNav"] a[data-active="true"],
     [data-testid="stSidebarNav"] li[aria-selected="true"] a {
-        background-color: rgba(0, 104, 201, 1.0) !important;
+        background-color: var(--primary-color) !important;
         font-weight: bold !important;
         color: white !important;
     }

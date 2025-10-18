@@ -25,27 +25,76 @@ class MarketIndexRepository(BaseRepository[MarketIndexORM]):
 
     def get_by_code(self, code: str) -> Optional[MarketIndexORM]:
         """
-        코드로 지수 조회
+        코드로 최신 지수 조회 (시계열 중 가장 최근 데이터)
 
         Args:
             code: 지수 코드
 
         Returns:
-            Optional[MarketIndexORM]: 지수 또는 None
+            Optional[MarketIndexORM]: 최신 지수 또는 None
         """
-        return self.get_by_field("code", code)
+        return (
+            self.db.query(MarketIndexORM)
+            .filter(MarketIndexORM.code == code)
+            .order_by(MarketIndexORM.created_at.desc())
+            .first()
+        )
+    
+    def get_by_code_and_source(self, code: str, api_source: str) -> Optional[MarketIndexORM]:
+        """
+        코드와 API 소스로 최신 지수 조회
+        
+        Args:
+            code: 지수 코드
+            api_source: API 소스 ('binance', 'coingecko', etc.)
+            
+        Returns:
+            Optional[MarketIndexORM]: 최신 지수 또는 None
+        """
+        return (
+            self.db.query(MarketIndexORM)
+            .filter(
+                MarketIndexORM.code == code,
+                MarketIndexORM.api_source == api_source
+            )
+            .order_by(MarketIndexORM.created_at.desc())
+            .first()
+        )
 
     def get_by_type(self, index_type: str) -> List[MarketIndexORM]:
         """
-        타입으로 지수 목록 조회
+        타입으로 최신 지수 목록 조회 (각 code별 최신 1개씩)
 
         Args:
             index_type: 지수 타입 (upbit, global, coin, usd)
 
         Returns:
-            List[MarketIndexORM]: 지수 목록
+            List[MarketIndexORM]: 최신 지수 목록
         """
-        return self.filter_by(index_type=index_type)
+        from sqlalchemy import func
+        
+        # Subquery: 각 code별 최신 created_at
+        subq = (
+            self.db.query(
+                MarketIndexORM.code,
+                func.max(MarketIndexORM.created_at).label('max_created_at')
+            )
+            .filter(MarketIndexORM.index_type == index_type)
+            .group_by(MarketIndexORM.code)
+            .subquery()
+        )
+        
+        # Join으로 최신 레코드만 조회
+        return (
+            self.db.query(MarketIndexORM)
+            .join(
+                subq,
+                (MarketIndexORM.code == subq.c.code) &
+                (MarketIndexORM.created_at == subq.c.max_created_at)
+            )
+            .filter(MarketIndexORM.index_type == index_type)
+            .all()
+        )
 
     def upsert_index(
         self,
@@ -56,10 +105,11 @@ class MarketIndexRepository(BaseRepository[MarketIndexORM]):
         change: Decimal = Decimal("0"),
         change_rate: Decimal = Decimal("0"),
         extra_data: Optional[dict] = None,
-        ttl_seconds: int = 300
+        ttl_seconds: int = 300,
+        api_source: Optional[str] = None
     ) -> MarketIndexORM:
         """
-        지수 업데이트 또는 생성 (Upsert)
+        지수 생성 (시계열 저장 - 항상 INSERT)
 
         Args:
             index_type: 지수 타입
@@ -70,41 +120,28 @@ class MarketIndexRepository(BaseRepository[MarketIndexORM]):
             change_rate: 변동률
             extra_data: 추가 데이터
             ttl_seconds: TTL (초)
+            api_source: API 소스 ('binance', 'coingecko', etc.)
 
         Returns:
             MarketIndexORM: 지수
         """
-        existing = self.get_by_code(code)
-
         extra_json = json.dumps(extra_data) if extra_data else None
 
-        if existing:
-            # 업데이트
-            index = self.update(
-                existing.id,
-                index_type=index_type,
-                name=name,
-                value=value,
-                change=change,
-                change_rate=change_rate,
-                extra_data=extra_json,
-                ttl_seconds=ttl_seconds,
-                updated_at=datetime.now()
-            )
-            logger.debug(f"지수 업데이트: {code} = {value:,.2f} ({change_rate:+.2f}%)")
-        else:
-            # 생성
-            index = self.create(
-                index_type=index_type,
-                code=code,
-                name=name,
-                value=value,
-                change=change,
-                change_rate=change_rate,
-                extra_data=extra_json,
-                ttl_seconds=ttl_seconds
-            )
-            logger.info(f"지수 생성: {code} = {value:,.2f}")
+        # 시계열 저장: 항상 새 레코드 생성 (UPDATE 없음)
+        index = self.create(
+            index_type=index_type,
+            code=code,
+            name=name,
+            value=value,
+            change=change,
+            change_rate=change_rate,
+            extra_data=extra_json,
+            ttl_seconds=ttl_seconds,
+            api_source=api_source
+        )
+        
+        source_log = f" ({api_source})" if api_source else ""
+        logger.debug(f"지수 저장{source_log}: {code} = {value:,.2f} ({change_rate:+.2f}%)")
 
         return index
 
@@ -157,7 +194,7 @@ class MarketIndexRepository(BaseRepository[MarketIndexORM]):
 
     def delete_expired_indices(self) -> int:
         """
-        만료된 지수 삭제
+        만료된 지수 삭제 (TTL 기준)
 
         Returns:
             int: 삭제된 개수
@@ -173,6 +210,30 @@ class MarketIndexRepository(BaseRepository[MarketIndexORM]):
         if count > 0:
             logger.info(f"만료된 지수 {count}개 삭제 완료")
 
+        return count
+
+    def delete_old_indices(self, days: int = 7) -> int:
+        """
+        오래된 지수 삭제 (시계열 데이터 정리)
+
+        Args:
+            days: 보관 일수 (기본 7일)
+
+        Returns:
+            int: 삭제된 개수
+        """
+        from sqlalchemy import delete
+        cutoff_date = datetime.now() - timedelta(days=days)
+        
+        # 7일 이전 데이터 삭제
+        stmt = delete(MarketIndexORM).where(MarketIndexORM.created_at < cutoff_date)
+        result = self.db.execute(stmt)
+        self.db.commit()
+        
+        count = result.rowcount
+        if count > 0:
+            logger.info(f"[DB 정리] {days}일 이전 지수 {count}개 삭제 완료")
+        
         return count
 
     def to_entity(self, orm: MarketIndexORM) -> MarketIndex:
@@ -220,6 +281,7 @@ class MarketIndexRepository(BaseRepository[MarketIndexORM]):
                         'name': '업비트 종합 지수',
                         'value': 18000.50,
                         'change_rate': 0.84,
+                        'api_source': 'binance',  # Optional
                         ...
                     },
                     ...
@@ -231,6 +293,9 @@ class MarketIndexRepository(BaseRepository[MarketIndexORM]):
         results = []
 
         for index_data in indices:
+            # api_source 처리
+            api_source = index_data.get('api_source')
+            
             index = self.upsert_index(
                 index_type=index_data['index_type'],
                 code=index_data['code'],
@@ -239,7 +304,8 @@ class MarketIndexRepository(BaseRepository[MarketIndexORM]):
                 change=Decimal(str(index_data.get('change', 0))),
                 change_rate=Decimal(str(index_data.get('change_rate', 0))),
                 extra_data=index_data.get('extra_data'),
-                ttl_seconds=index_data.get('ttl_seconds', 300)
+                ttl_seconds=index_data.get('ttl_seconds', 300),
+                api_source=api_source
             )
             results.append(index)
 

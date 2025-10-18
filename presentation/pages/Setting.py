@@ -33,7 +33,6 @@ def main():
     
     # 시스템 설정값 불러오기
     from config.market_index_config import MarketIndexConfig
-    config = MarketIndexConfig()
 
     # ==================== 1. 화면 업데이트 설정 ====================
     st.markdown("**화면 업데이트 설정**")
@@ -67,20 +66,23 @@ def main():
     is_dashboard_active = websocket_enabled
     
     # 메트릭 카드 데이터 구성
+    upbit_interval = MarketIndexConfig.get_collection_interval('upbit', is_dashboard_active)
+    coingecko_interval = MarketIndexConfig.get_collection_interval('coingecko', is_dashboard_active)
+    
     metrics_data = [
         {
             "label": "WebSocket 전송",
-            "value": f"{config.WEBSOCKET_UPDATE_INTERVAL}초" if websocket_enabled else "OFF",
+            "value": f"{int(MarketIndexConfig.WEBSOCKET_UPDATE_INTERVAL)}초" if websocket_enabled else "OFF",
             "delta": None
         },
         {
             "label": "업비트 수집",
-            "value": f"{config.UPDATE_INTERVAL_UPBIT_SCRAPING}초" if is_dashboard_active else "60초",
+            "value": f"{int(upbit_interval)}초",
             "delta": None
         },
         {
             "label": "글로벌 수집",
-            "value": f"{config.UPDATE_INTERVAL_COINGECKO}초" if is_dashboard_active else "60초",
+            "value": f"{int(coingecko_interval)}초",
             "delta": None
         },
         {
@@ -103,20 +105,20 @@ def main():
 
     # 현재 설정값 가져오기
     current_general_setting = settings_repo.get_by_key(UserSettings.GENERAL_UPDATE_INTERVAL)
-    current_general_interval = int(current_general_setting.setting_value) if current_general_setting else config.DEFAULT_BACKGROUND_UPDATE_INTERVAL
+    current_general_interval = int(current_general_setting.setting_value) if current_general_setting else int(MarketIndexConfig.BACKGROUND_UPDATE_INTERVAL)
 
     # 간격 옵션을 config에서 가져오기
-    available_intervals = config.get_available_background_intervals()
+    available_intervals = MarketIndexConfig.get_available_background_intervals()
     interval_options = {}
     for interval in available_intervals:
-        label = config.get_background_interval_label(interval)
+        label = MarketIndexConfig.get_background_interval_label(interval)
         interval_options[label] = interval
 
     # 현재 설정에 맞는 라벨 찾기
-    current_general_label = config.get_background_interval_label(current_general_interval)
+    current_general_label = MarketIndexConfig.get_background_interval_label(current_general_interval)
     if current_general_label not in interval_options:
         closest = min(interval_options.values(), key=lambda x: abs(x - current_general_interval))
-        current_general_label = config.get_background_interval_label(closest)
+        current_general_label = MarketIndexConfig.get_background_interval_label(closest)
     current_general_index = list(interval_options.keys()).index(current_general_label)
 
     # selectbox와 버튼을 한 줄에 배치
@@ -127,7 +129,7 @@ def main():
             options=list(interval_options.keys()),
             index=current_general_index,
             key="general_update_interval_setting",
-            help=f"다른 페이지에 있을 때 백그라운드에서 데이터를 수집하는 간격입니다. (최소 {config.SYSTEM_MIN_UPDATE_INTERVAL}초)",
+            help=f"다른 페이지에 있을 때 백그라운드에서 데이터를 수집하는 간격입니다.",
             label_visibility="collapsed"
         )
     with col2:
@@ -135,14 +137,10 @@ def main():
 
     if save_general_btn:
         selected_general_interval = interval_options[selected_general_label]
-        validated_interval = config.validate_update_interval(selected_general_interval)
-
-        if validated_interval != selected_general_interval:
-            st.warning(f"선택한 간격이 시스템 최소값보다 작아 {validated_interval}초로 조정되었습니다.")
 
         settings_repo.upsert(
             key=UserSettings.GENERAL_UPDATE_INTERVAL,
-            value=str(validated_interval),
+            value=str(selected_general_interval),
             description="백그라운드 일반 업데이트 간격 (초)"
         )
         st.success("저장되었습니다.")
@@ -158,8 +156,8 @@ def main():
             "delta": None
         },
         {
-            "label": "시스템 최소값",
-            "value": f"{config.SYSTEM_MIN_UPDATE_INTERVAL}초",
+            "label": "API 최소값",
+            "value": f"{MarketIndexConfig.SAFE_UPBIT_SCRAPING}초",
             "delta": None
         },
         {
@@ -189,50 +187,27 @@ def main():
 
     with source_col1:
         st.markdown("<div style='color: #66686a; font-size: 0.875rem; font-weight: bold; margin-bottom: 0.5rem;'>실시간 업데이트 (Dashboard 활성 시)</div>", unsafe_allow_html=True)
+        
         st.code(f"""# 업비트 웹스크래핑 + USD/KRW
-UPDATE_INTERVAL_UPBIT_SCRAPING = {config.UPDATE_INTERVAL_UPBIT_SCRAPING}  # 5초 (실시간성 우선)
+API_MIN_INTERVAL_UPBIT_SCRAPING: {MarketIndexConfig.API_MIN_INTERVAL_UPBIT_SCRAPING}  # API 문서 기준
+SAFETY_MARGIN_UPBIT: {MarketIndexConfig.SAFETY_MARGIN_UPBIT}  # 안전 여유 (+20%)
+SAFE_UPBIT_SCRAPING: {MarketIndexConfig.SAFE_UPBIT_SCRAPING}  # 실제 사용 (자동 계산)
 
 # 글로벌 지수 (CoinGecko)
-UPDATE_INTERVAL_COINGECKO = {config.UPDATE_INTERVAL_COINGECKO}  # 6초 (429 에러 방지)
+API_MIN_INTERVAL_COINGECKO: {MarketIndexConfig.API_MIN_INTERVAL_COINGECKO}  # API 문서 기준
+SAFETY_MARGIN_COINGECKO: {MarketIndexConfig.SAFETY_MARGIN_COINGECKO}  # 안전 여유 (+25%)
+SAFE_COINGECKO: {MarketIndexConfig.SAFE_COINGECKO}  # 실제 사용 (자동 계산)
 """, language="python")
 
     with source_col2:
-        st.markdown("<div style='color: #66686a; font-size: 0.875rem; font-weight: bold; margin-bottom: 0.5rem;'>Fallback API (1시간+)</div>", unsafe_allow_html=True)
-        st.code(f"""# FxRates API (Upbit 실패 시)
-UPDATE_INTERVAL_FXRATES = {config.UPDATE_INTERVAL_FXRATES}  # 1시간 (무료 플랜)
+        st.markdown("<div style='color: #66686a; font-size: 0.875rem; font-weight: bold; margin-bottom: 0.5rem;'>백그라운드 모드</div>", unsafe_allow_html=True)
+        
+        st.code(f"""# 백그라운드 수집 (느린 모드)
+BACKGROUND_UPDATE_INTERVAL: {current_general_interval}  # 현재 설정: {MarketIndexConfig.get_background_interval_label(current_general_interval)}
 
-# Currency API (최종 fallback)
-UPDATE_INTERVAL_CURRENCY_API = {config.UPDATE_INTERVAL_CURRENCY_API}  # 1일
-""", language="python")
-
-    st.markdown("---")
-
-    # ==================== 4. API Rate Limit 정보 ====================
-    st.markdown("**API Rate Limit 정보**")
-
-    rate_col1, rate_col2 = st.columns(2)
-
-    with rate_col1:
-        st.markdown("<div style='color: #66686a; font-size: 0.875rem; font-weight: bold; margin-bottom: 0.5rem;'>API 최소 간격 (문서 기준)</div>", unsafe_allow_html=True)
-        st.code(f"""# 업비트
-API_MIN_INTERVAL_UPBIT_SCRAPING = {config.API_MIN_INTERVAL_UPBIT_SCRAPING}  # 5000ms (5초)
-API_MIN_INTERVAL_UPBIT_API = {config.API_MIN_INTERVAL_UPBIT_API}  # 100ms (10회/초)
-
-# CoinGecko (무료 플랜)
-API_MIN_INTERVAL_COINGECKO = {config.API_MIN_INTERVAL_COINGECKO}  # 4000ms (보수적)
-
-# 환율 API
-API_MIN_INTERVAL_FXRATES = {config.API_MIN_INTERVAL_FXRATES}  # 3600000ms (1시간)
-""", language="python")
-
-    with rate_col2:
-        st.markdown("<div style='color: #66686a; font-size: 0.875rem; font-weight: bold; margin-bottom: 0.5rem;'>내부 제한값 (API + 20% 안전 여유)</div>", unsafe_allow_html=True)
-        st.code(f"""# 업비트 (안전 여유 포함)
-INTERNAL_MIN_INTERVAL_UPBIT_SCRAPING = {config.INTERNAL_MIN_INTERVAL_UPBIT_SCRAPING}  # 6000ms (6초)
-INTERNAL_MIN_INTERVAL_UPBIT_API = {config.INTERNAL_MIN_INTERVAL_UPBIT_API}  # 120ms
-
-# CoinGecko (안전 여유 포함)
-INTERNAL_MIN_INTERVAL_COINGECKO = {config.INTERNAL_MIN_INTERVAL_COINGECKO}  # 5000ms (5초)
+# 환율 API (Fallback)
+SAFE_FXRATES: {int(MarketIndexConfig.SAFE_FXRATES)}  # {int(MarketIndexConfig.SAFE_FXRATES//3600)}시간
+SAFE_CURRENCY_API: {int(MarketIndexConfig.SAFE_CURRENCY_API)}  # {int(MarketIndexConfig.SAFE_CURRENCY_API//86400)}일
 """, language="python")
     
 if __name__ == "__main__":

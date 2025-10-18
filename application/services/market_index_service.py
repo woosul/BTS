@@ -3,12 +3,10 @@ BTS 마켓 지수 서비스
 
 업비트 종합지수(UBCI) 및 글로벌 암호화폐 지수 제공
 """
-import json
 import time
 import requests
 from datetime import datetime, timedelta
-from typing import Dict, Any, List, Optional
-from bs4 import BeautifulSoup
+from typing import Any, Dict, List, Optional
 from playwright.sync_api import sync_playwright
 
 from config.market_index_config import MarketIndexConfig
@@ -37,8 +35,12 @@ class MarketIndexService:
     def __init__(self):
         self.session = requests.Session()
         self.session.headers.update({
-            'User-Agent': 'pyupbit'
+            'User-Agent': 'pyupbit',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
         })
+        # CoinGecko API 호출 타이머 (순차 호출이므로 단일 타이머 사용)
         self._last_coingecko_call = None
         self._last_fxrates_call = None
 
@@ -50,58 +52,48 @@ class MarketIndexService:
     
     # ===== 업비트 지수 (API 우선, 스크래핑 fallback) =====
     
-    def get_upbit_indices(self) -> Dict[str, any]:
+    def get_upbit_indices(self) -> Dict[str, Any]:
         """
         업비트 지수 데이터 수집 (다중 fallback)
-        1. 간단한 requests 방식 (가장 빠름)
-        2. CSS 셀렉터 방식 (빠름)
-        3. 텍스트 기반 파싱 (안정적)
-        4. 정규식 기반 파싱 (최후)
+        
+        Fallback 순서:
+        1. CSS 셀렉터 방식 (Playwright, 가장 안정적)
+        2. 텍스트 기반 파싱 (Playwright)
+        3. 정규식 기반 파싱 (Playwright, 최후)
         """
         logger.info("업비트 지수 데이터 가져오기 시작 (다중 fallback)")
 
-        # Fallback 0: 간단한 requests 방식 (가장 빠름)
-        try:
-            result = self._scrape_with_requests()
-            if self._is_valid_result(result):
-                logger.info("✓ Fallback 0 성공: 간단한 requests 방식")
-                return result
-        except Exception as e:
-            logger.warning(f"✗ Fallback 0 실패 (requests): {e}")
-
-        # Fallback 1: CSS 셀렉터 방식
+        # Fallback 0: CSS 셀렉터 방식 (가장 안정적)
         try:
             result = self._scrape_with_css_selector()
             if self._is_valid_result(result):
-                logger.info("✓ Fallback 1 성공: CSS 셀렉터 방식")
+                logger.info("✓ Fallback 0 성공: CSS 셀렉터 방식")
                 return result
         except Exception as e:
-            logger.warning(f"✗ Fallback 1 실패 (CSS): {e}")
-        except Exception as e:
-            logger.warning(f"✗ Fallback 1 실패 (CSS 셀렉터): {e}")
+            logger.warning(f"✗ Fallback 0 실패 (CSS 셀렉터): {e}")
 
-        # Fallback 2: 텍스트 기반 파싱
+        # Fallback 1: 텍스트 기반 파싱
         try:
             result = self._scrape_with_text_parsing()
             if self._is_valid_result(result):
-                logger.info("✓ Fallback 2 성공: 텍스트 기반 파싱")
+                logger.info("✓ Fallback 1 성공: 텍스트 기반 파싱")
                 return result
         except Exception as e:
-            logger.warning(f"✗ Fallback 2 실패 (텍스트 파싱): {e}")
+            logger.warning(f"✗ Fallback 1 실패 (텍스트 파싱): {e}")
 
-        # Fallback 3: 정규식 기반 파싱
+        # Fallback 2: 정규식 기반 파싱
         try:
             result = self._scrape_with_regex()
             if self._is_valid_result(result):
-                logger.info("✓ Fallback 3 성공: 정규식 기반 파싱")
+                logger.info("✓ Fallback 2 성공: 정규식 기반 파싱")
                 return result
         except Exception as e:
-            logger.warning(f"✗ Fallback 3 실패 (정규식): {e}")
+            logger.warning(f"✗ Fallback 2 실패 (정규식): {e}")
 
         logger.error("모든 fallback 방법 실패 - 빈 데이터 반환")
         return self._get_empty_upbit_indices()
 
-    def _is_valid_result(self, result: Dict[str, any]) -> bool:
+    def _is_valid_result(self, result: Dict[str, Any]) -> bool:
         """결과가 유효한 데이터인지 확인"""
         if not result or not isinstance(result, dict):
             return False
@@ -111,7 +103,7 @@ class MarketIndexService:
             for key in ['ubci', 'ubmi', 'ub10', 'ub30']
         )
 
-    def _fetch_and_parse_upbit_indices(self) -> Dict[str, any]:
+    def _fetch_and_parse_upbit_indices(self) -> Dict[str, Any]:
         """
         Upbit CRIX API를 통해 지수 데이터를 가져오고 파싱합니다.
         """
@@ -165,7 +157,7 @@ class MarketIndexService:
 
         return result
 
-    def _scrape_with_requests(self) -> Dict[str, any]:
+    def _scrape_with_requests(self) -> Dict[str, Any]:
         """
         Fallback 0: 간단한 requests 방식으로 업비트 CRIX API 호출
         가장 빠르고 안정적인 방법이지만, API 구조 변경에 취약할 수 있음
@@ -206,7 +198,7 @@ class MarketIndexService:
             logger.warning(f"Requests 방식 스크래핑 실패: {e}")
             raise
 
-    def _scrape_with_css_selector(self) -> Dict[str, any]:
+    def _scrape_with_css_selector(self) -> Dict[str, Any]:
         """
         Fallback 1: CSS 셀렉터 방식으로 스크래핑
         - 빠르지만 CSS 클래스 변경에 취약
@@ -217,7 +209,7 @@ class MarketIndexService:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
             try:
-                page.goto(self.UPBIT_TRENDS_URL, timeout=MarketIndexConfig.TIMEOUT_UPBIT_SCRAPING * 1000)
+                page.goto(self.UPBIT_TRENDS_URL, timeout=MarketIndexConfig.TIMEOUT_UPBIT_WAIT_LOAD * 1000)
                 # 여러 가능한 CSS 셀렉터 시도
                 selectors = ['.css-bbw3a7', '[data-testid="index-value"]', 'div[class*="css-"]']
 
@@ -225,7 +217,7 @@ class MarketIndexService:
                     try:
                         page.wait_for_selector(selector, timeout=MarketIndexConfig.TIMEOUT_UPBIT_WAIT_SELECTOR * 1000)
                         break
-                    except:
+                    except Exception:
                         continue
 
                 # Extract index data + USD/KRW using JavaScript
@@ -324,7 +316,7 @@ class MarketIndexService:
             finally:
                 browser.close()
     
-    def _scrape_with_text_parsing(self) -> Dict[str, any]:
+    def _scrape_with_text_parsing(self) -> Dict[str, Any]:
         """
         Fallback 2: 텍스트 기반 파싱 방식
         - CSS 클래스 변경에 강함
@@ -335,7 +327,7 @@ class MarketIndexService:
             page = browser.new_page()
             try:
                 # 업비트 데이터랩 페이지로 변경
-                page.goto("https://datalab.upbit.com/", timeout=MarketIndexConfig.TIMEOUT_UPBIT_SCRAPING * 1000)
+                page.goto("https://datalab.upbit.com/", timeout=MarketIndexConfig.TIMEOUT_UPBIT_WAIT_LOAD * 1000)
                 page.wait_for_load_state('domcontentloaded', timeout=MarketIndexConfig.TIMEOUT_UPBIT_WAIT_LOAD * 1000)
 
                 # 전체 텍스트 추출
@@ -434,7 +426,7 @@ class MarketIndexService:
             finally:
                 browser.close()
 
-    def _scrape_with_regex(self) -> Dict[str, any]:
+    def _scrape_with_regex(self) -> Dict[str, Any]:
         """
         Fallback 3: 정규식 기반 파싱
         - 최후의 수단
@@ -444,7 +436,7 @@ class MarketIndexService:
             browser = p.chromium.launch(headless=True)
             page = browser.new_page()
             try:
-                page.goto("https://datalab.upbit.com/", timeout=MarketIndexConfig.TIMEOUT_UPBIT_SCRAPING * 1000)
+                page.goto("https://datalab.upbit.com/", timeout=MarketIndexConfig.TIMEOUT_UPBIT_WAIT_LOAD * 1000)
                 page.wait_for_load_state('domcontentloaded', timeout=MarketIndexConfig.TIMEOUT_UPBIT_WAIT_LOAD * 1000)
 
                 # HTML 전체 가져오기
@@ -590,7 +582,7 @@ class MarketIndexService:
             if elapsed < min_interval:
                 remaining = min_interval - elapsed
                 logger.debug(f"FxRatesAPI rate limit: {remaining/60:.1f}분 남음")
-                raise Exception(f"Rate limit: {remaining/60:.1f}분 후 재시도")
+                raise RuntimeError(f"Rate limit: {remaining/60:.1f}분 후 재시도")
 
         # 현재 환율 조회
         params = {
@@ -602,7 +594,7 @@ class MarketIndexService:
         response = self.session.get(
             self.FXRATES_API_BASE_URL,
             params=params,
-            timeout=MarketIndexConfig.TIMEOUT_CURRENCY_API
+            timeout=MarketIndexConfig.TIMEOUT_COINGECKO_API
         )
         response.raise_for_status()
 
@@ -612,7 +604,7 @@ class MarketIndexService:
 
         # 응답 형식: {"success": true, "base": "USD", "date": "2025-01-01", "rates": {"KRW": 1234.56}}
         if not data.get('success', False):
-            raise Exception(f"FxRatesAPI 오류: {data.get('error', {})}")
+            raise ValueError(f"FxRatesAPI 오류: {data.get('error', {})}")
 
         current_rate = float(data['rates']['KRW'])
 
@@ -629,7 +621,7 @@ class MarketIndexService:
             hist_response = self.session.get(
                 self.FXRATES_API_BASE_URL,
                 params=hist_params,
-                timeout=MarketIndexConfig.TIMEOUT_CURRENCY_API
+                timeout=MarketIndexConfig.TIMEOUT_COINGECKO_API
             )
             hist_response.raise_for_status()
             hist_data = hist_response.json()
@@ -658,7 +650,7 @@ class MarketIndexService:
         """
         Currency API를 사용한 USD/KRW 환율 조회 (fallback, 일일 업데이트)
         """
-        response = self.session.get(self.CURRENCY_API_BASE_URL, timeout=MarketIndexConfig.TIMEOUT_CURRENCY_API)
+        response = self.session.get(self.CURRENCY_API_BASE_URL, timeout=MarketIndexConfig.TIMEOUT_COINGECKO_API)
         response.raise_for_status()
         today_data = response.json()
 
@@ -669,7 +661,7 @@ class MarketIndexService:
             two_days_ago = (datetime.now() - timedelta(days=2)).strftime('%Y-%m-%d')
             historical_url = f"https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@{two_days_ago}/v1/currencies/usd.json"
 
-            hist_response = self.session.get(historical_url, timeout=MarketIndexConfig.TIMEOUT_CURRENCY_API)
+            hist_response = self.session.get(historical_url, timeout=MarketIndexConfig.TIMEOUT_COINGECKO_API)
             hist_response.raise_for_status()
             historical_data = hist_response.json()
 
@@ -694,25 +686,23 @@ class MarketIndexService:
     
     # ===== 글로벌 지수 (CoinGecko API) =====
     
-    def get_global_crypto_data(self) -> Dict[str, any]:
+    def get_global_crypto_data(self) -> Dict[str, Any]:
         """
         CoinGecko API를 통한 글로벌 암호화폐 시장 데이터
-        Rate limiting: 최소 2초 간격
+        Rate limiting: Scheduler에서 제어 (Service는 직접 호출만)
         """
         try:
-            # Rate limiting 체크
-            if self._last_coingecko_call:
-                elapsed = time.time() - self._last_coingecko_call
-                min_interval = MarketIndexConfig.INTERNAL_MIN_INTERVAL_COINGECKO / 1000  # 밀리초 → 초 변환 (2.4초)
-                if elapsed < min_interval:
-                    wait_time = min_interval - elapsed
-                    logger.info(f"CoinGecko API rate limit: {wait_time:.1f}초 대기")
-                    time.sleep(wait_time)
+            # Demo API Key 헤더 추가
+            headers = {
+                'x-cg-demo-api-key': MarketIndexConfig.COINGECKO_API_KEY
+            }
             
-            response = self.session.get(self.COINGECKO_GLOBAL_URL, timeout=MarketIndexConfig.TIMEOUT_COINGECKO_API)
+            response = self.session.get(
+                self.COINGECKO_GLOBAL_URL,
+                headers=headers,
+                timeout=MarketIndexConfig.TIMEOUT_COINGECKO_API
+            )
             response.raise_for_status()
-            
-            self._last_coingecko_call = time.time()
             
             data = response.json()['data']
             
@@ -738,7 +728,7 @@ class MarketIndexService:
             logger.error(f"CoinGecko 글로벌 데이터 가져오기 실패: {e}")
             return self._get_empty_global_data()
     
-    def _get_empty_global_data(self) -> Dict[str, any]:
+    def _get_empty_global_data(self) -> Dict[str, Any]:
         """빈 글로벌 데이터 반환"""
         return {
             'total_market_cap_usd': 0.0,
@@ -755,24 +745,15 @@ class MarketIndexService:
         }
     
     def get_top_coins_with_sparkline(
-        self, 
-        limit: int = 10, 
+        self,
+        limit: int = 10,
         vs_currency: str = 'usd'
-    ) -> List[Dict[str, any]]:
+    ) -> List[Dict[str, Any]]:
         """
         상위 코인 데이터와 7일 sparkline 가져오기
-        Rate limiting: 최소 60초 간격
+        Rate limiting: Scheduler에서 제어 (Service는 직접 호출만)
         """
         try:
-            # Rate limiting 체크 (CoinGecko API 공유)
-            if self._last_coingecko_call:
-                elapsed = time.time() - self._last_coingecko_call
-                min_interval = MarketIndexConfig.INTERNAL_MIN_INTERVAL_COINGECKO / 1000  # 밀리초 → 초 변환 (2.4초)
-                if elapsed < min_interval:
-                    wait_time = min_interval - elapsed
-                    logger.info(f"CoinGecko Markets API rate limit: {wait_time:.1f}초 대기")
-                    time.sleep(wait_time)
-            
             params = {
                 'vs_currency': vs_currency,
                 'order': 'market_cap_desc',
@@ -782,16 +763,27 @@ class MarketIndexService:
                 'price_change_percentage': '24h,7d'
             }
             
+            # Demo API Key 헤더 추가
+            headers = {
+                'x-cg-demo-api-key': MarketIndexConfig.COINGECKO_API_KEY
+            }
+            
             response = self.session.get(
                 self.COINGECKO_MARKETS_URL, 
                 params=params,
-                timeout=MarketIndexConfig.TIMEOUT_COINGECKO_MARKETS
+                headers=headers,
+                timeout=MarketIndexConfig.TIMEOUT_COINGECKO_API
             )
             response.raise_for_status()
             
-            self._last_coingecko_call = time.time()
-            
             data = response.json()
+            
+            # 🔍 디버깅: 실제 API 응답 확인
+            if data and len(data) > 0:
+                btc = data[0]
+                btc_price = btc.get('current_price')
+                btc_change = btc.get('price_change_percentage_24h')
+                logger.info(f"[CoinGecko Markets] BTC 원본 응답: price={btc_price}, 24h_change={btc_change}%")
             
             results = []
             for coin in data:
@@ -848,7 +840,7 @@ class MarketIndexService:
     
     # ===== 통합 데이터 =====
     
-    def get_all_market_indices(self) -> Dict[str, any]:
+    def get_all_market_indices(self) -> Dict[str, Any]:
         """
         모든 마켓 지수 데이터 가져오기
         """
