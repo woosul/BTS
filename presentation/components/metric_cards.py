@@ -128,21 +128,16 @@ def render_metric_card_group(
             # (위젯은 호출자가 직접 배치)
             return  # 호출자가 직접 타이틀 배치하도록
         elif right_content or attribution:
-            # ===== 카드 블럭과 동일한 컬럼 구조 사용 (반응형) =====
-            # 카드 행과 똑같이 st.columns(5)를 사용하여 레이아웃 일치
-            title_cols = st.columns(columns, gap="small")
+            # ===== 카드 블럭 너비에 맞춰 타이틀과 우측 콘텐츠 배치 =====
+            # 단일 flexbox container 사용 + 25px 보정 (컬럼 우측 padding 보정)
+            content_html = right_content if right_content else f'<span style="color: #808080; font-size: 11px;">{attribution}</span>'
             
-            # 첫 번째 컬럼에 타이틀
-            with title_cols[0]:
-                st.markdown(f"<div style='color: #66686a; font-size: 14px; font-weight: 600; margin-bottom: 8px;'>{title}</div>", unsafe_allow_html=True)
-            
-            # 중간 컬럼들은 비움
-            # (아무것도 하지 않음 - Streamlit이 자동으로 처리)
-            
-            # 마지막 컬럼에 우측 콘텐츠를 오른쪽 정렬
-            with title_cols[-1]:
-                content_html = right_content if right_content else f'<span style="color: #808080; font-size: 11px;">{attribution}</span>'
-                st.markdown(f"<div style='text-align: right; margin-bottom: 8px;'>{content_html}</div>", unsafe_allow_html=True)
+            st.markdown(f'''
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; margin-right: 25px;">
+                    <div style="color: #66686a; font-size: 14px; font-weight: 600;">{title}</div>
+                    <div>{content_html}</div>
+                </div>
+            ''', unsafe_allow_html=True)
         else:
             st.markdown(f"<div style='color: #66686a; font-size: 14px; font-weight: 600; margin-bottom: 8px;'>{title}</div>", unsafe_allow_html=True)
 
