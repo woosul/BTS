@@ -120,7 +120,7 @@ def apply_global_styles():
         margin-bottom: 0.8rem !important;
     }
     .block-container {
-        padding-top: 2rem !important;
+        padding-top: 1rem !important;
         padding-bottom: 1rem !important;
     }
 

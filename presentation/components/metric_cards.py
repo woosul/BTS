@@ -106,7 +106,9 @@ def render_metric_card_group(
     title: str,
     metrics: list[dict],
     columns: int = 5,
-    attribution: str = None
+    attribution: str = None,
+    toggle_widget: bool = False,
+    right_content: str = None
 ):
     """
     메트릭 카드 그룹 렌더링
@@ -116,17 +118,31 @@ def render_metric_card_group(
         metrics: 메트릭 리스트 [{"label": "...", "value": "...", "delta": ..., "card_id": "..."}, ...]
         columns: 열 개수
         attribution: 우측에 표시할 attribution 텍스트 (HTML 지원)
+        toggle_widget: 타이틀 우측에 위젯 공간 확보 (st.columns 사용)
+        right_content: 타이틀 우측에 표시할 커스텀 HTML 콘텐츠
     """
     # 그룹 제목 - deep gray, no bold (default color is #54A0FD)
     if title:
-        if attribution:
-            # 타이틀과 attribution을 flexbox로 양쪽 정렬
-            st.markdown(f"""
-                <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;'>
-                    <div style='color: #66686a; font-size: 14px; font-weight: 600;'>{title}</div>
-                    <div style='color: #808080; font-size: 11px;'>{attribution}</div>
-                </div>
-            """, unsafe_allow_html=True)
+        if toggle_widget:
+            # 타이틀과 위젯을 위한 공간을 columns로 분할
+            # (위젯은 호출자가 직접 배치)
+            return  # 호출자가 직접 타이틀 배치하도록
+        elif right_content or attribution:
+            # ===== 카드 블럭과 동일한 컬럼 구조 사용 (반응형) =====
+            # 카드 행과 똑같이 st.columns(5)를 사용하여 레이아웃 일치
+            title_cols = st.columns(columns, gap="small")
+            
+            # 첫 번째 컬럼에 타이틀
+            with title_cols[0]:
+                st.markdown(f"<div style='color: #66686a; font-size: 14px; font-weight: 600; margin-bottom: 8px;'>{title}</div>", unsafe_allow_html=True)
+            
+            # 중간 컬럼들은 비움
+            # (아무것도 하지 않음 - Streamlit이 자동으로 처리)
+            
+            # 마지막 컬럼에 우측 콘텐츠를 오른쪽 정렬
+            with title_cols[-1]:
+                content_html = right_content if right_content else f'<span style="color: #808080; font-size: 11px;">{attribution}</span>'
+                st.markdown(f"<div style='text-align: right; margin-bottom: 8px;'>{content_html}</div>", unsafe_allow_html=True)
         else:
             st.markdown(f"<div style='color: #66686a; font-size: 14px; font-weight: 600; margin-bottom: 8px;'>{title}</div>", unsafe_allow_html=True)
 

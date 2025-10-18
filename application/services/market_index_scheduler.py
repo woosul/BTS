@@ -179,15 +179,15 @@ class MarketIndexScheduler:
 
     def run_scheduler(self):
         """스케줄러 메인 루프 - 듀얼 스레드 데이터 수집 + 페이지별 차등 WebSocket 전송"""
-        logger.info("✓ 듀얼 스레드 스케줄러 시작:")
-        logger.info(f"  - 업비트 지수 + USD/KRW: {self.config.SAFE_UPBIT_SCRAPING}초 간격 (실시간)")
-        logger.info(f"  - 글로벌 지수: {self.config.SAFE_COINGECKO}초 간격 (실시간)")
-        logger.info("  - WebSocket 전송: 페이지별 차등 전송 전략 적용")
+        logger.info("[SCHEDULER] 듀얼 스레드 스케줄러 시작")
+        logger.info(f"[SCHEDULER] 업비트 지수 + USD/KRW 간격: {self.config.SAFE_UPBIT_SCRAPING}초")
+        logger.info(f"[SCHEDULER] 글로벌 지수 간격: {self.config.SAFE_COINGECKO}초")
+        logger.debug("[SCHEDULER] WebSocket 전송: 페이지별 차등 전송 전략 적용")
         
         # 활성화된 페이지 전략 출력
         for page, strategy in MarketIndexConfig.WEBSOCKET_PAGE_STRATEGIES.items():
             if strategy['enabled']:
-                logger.info(f"    ✓ {page}: {strategy['interval']}초 ({strategy['description']})")
+                logger.debug(f"[SCHEDULER] {page} 페이지: {strategy['interval']}초 간격 ({strategy['description']})")
 
         # 백그라운드 데이터 업데이트 스레드 시작 (2개 독립 스레드)
         self._start_background_data_updater()
@@ -312,12 +312,12 @@ class MarketIndexScheduler:
                                 logger.info(f"[글로벌 업데이터] CoinGecko에서 {len(coin_data)}개 코인 수집 완료 (Binance 포맷으로 변환)")
                     
                     # 3. 데이터 저장
-                    logger.info(f"[글로벌 업데이터] 🔍 데이터 저장 시도: coin_data={type(coin_data)}, len={len(coin_data) if coin_data else 0}, api_source={api_source}")
+                    logger.debug(f"[글로벌 업데이터] 데이터 저장 시도: type={type(coin_data)}, count={len(coin_data) if coin_data else 0}, source={api_source}")
                     if self._validate_collected_data(coin_data, f"코인 데이터 ({api_source})"):
-                        logger.info(f"[글로벌 업데이터] ✅ 검증 통과 - 저장 시작")
+                        logger.debug(f"[글로벌 업데이터] 검증 통과 - 저장 시작")
                         self._save_coin_data(coin_data, api_source)
                     else:
-                        logger.warning(f"[글로벌 업데이터] ❌ 검증 실패 - 저장 건너뜀")
+                        logger.warning(f"[글로벌 업데이터] 검증 실패 - 저장 건너뜀")
 
                     duration = (datetime.now() - start_time).total_seconds()
                     logger.info(f"[글로벌 업데이터] 완료 (소요시간: {duration:.2f}초)")
@@ -728,7 +728,7 @@ class MarketIndexScheduler:
         client_address = getattr(websocket, 'remote_address', 'unknown')
         
         self.connected_clients.add(websocket)
-        logger.info(f"✓ WebSocket 클라이언트 연결: {client_address} (총 {len(self.connected_clients)}명)")
+        logger.info(f"[WebSocket] 클라이언트 연결: {client_address} (총 {len(self.connected_clients)}명)")
 
         try:
             # 연결 즉시 최신 데이터 전송
@@ -860,14 +860,14 @@ class MarketIndexScheduler:
                 ping_timeout=10,   # ping 응답 대기 시간 10초
                 close_timeout=10   # 종료 대기 시간 10초
             )
-            logger.info(f"✓ WebSocket 서버 시작: {self.config.get_websocket_url()}")
-            logger.info("  - ping 간격: 20초, timeout: 10초")
+            logger.info(f"[WebSocket] 서버 시작: {self.config.get_websocket_url()}")
+            logger.debug("[WebSocket] ping 간격: 20초, timeout: 10초")
             
             # 서버 종료까지 대기
             await self.websocket_server.wait_closed()
             
         except Exception as e:
-            logger.error(f"WebSocket 서버 오류: {e}", exc_info=True)
+            logger.error(f"[WebSocket] 서버 오류: {e}", exc_info=True)
         finally:
             logger.info("WebSocket 서버 종료됨")
 
@@ -1026,13 +1026,13 @@ class MarketIndexScheduler:
             save_func(data)
             
             duration = (datetime.now() - start_time).total_seconds()
-            logger.info(f"[데이터 수집] ✓ {name} 완료 (소요시간: {duration:.2f}초)")
+            logger.info(f"[데이터 수집] {name} 완료 (소요시간: {duration:.2f}초)")
             return True
             
         except Exception as e:
             duration = (datetime.now() - start_time).total_seconds()
             if is_critical:
-                logger.error(f"[데이터 수집] ✗ {name} 실패 (소요시간: {duration:.2f}초): {e}")
+                logger.error(f"[데이터 수집] {name} 실패 (소요시간: {duration:.2f}초): {e}")
             else:
                 logger.warning(f"[데이터 수집] ✗ {name} 실패 (소요시간: {duration:.2f}초): {e}")
             return False
@@ -1139,9 +1139,9 @@ class MarketIndexScheduler:
                 if indices_data:
                     repo.bulk_upsert(indices_data)
                     save_duration = (datetime.now() - save_start).total_seconds()
-                    logger.info(f"[DB 저장] ✓ 업비트 지수 저장 완료: {len(indices_data)}개 (소요시간: {save_duration:.3f}초)")
+                    logger.info(f"[DB 저장] 업비트 지수 저장 완료: {len(indices_data)}개 (소요시간: {save_duration:.3f}초)")
                 else:
-                    logger.warning("[DB 저장] ✗ 업비트 지수 저장할 데이터 없음")
+                    logger.warning("[DB 저장] 업비트 지수 저장할 데이터 없음")
                     
             finally:
                 session.close()
@@ -1176,7 +1176,7 @@ class MarketIndexScheduler:
                 
                 repo.bulk_upsert([usd_krw_data])
                 save_duration = (datetime.now() - save_start).total_seconds()
-                logger.info(f"[DB 저장] ✓ USD/KRW 환율 저장 완료 (소요시간: {save_duration:.3f}초)")
+                logger.info(f"[DB 저장] USD/KRW 환율 저장 완료 (소요시간: {save_duration:.3f}초)")
                 
             finally:
                 session.close()
@@ -1260,14 +1260,14 @@ class MarketIndexScheduler:
                 
                 repo.bulk_upsert(indices_data)
                 save_duration = (datetime.now() - save_start).total_seconds()
-                logger.info(f"[DB 저장] ✓ 글로벌 지수 저장 완료: {len(indices_data)}개 (소요시간: {save_duration:.3f}초)")
+                logger.info(f"[DB 저장] 글로벌 지수 저장 완료: {len(indices_data)}개 (소요시간: {save_duration:.3f}초)")
                 
             finally:
                 session.close()
                 
         except Exception as e:
             save_duration = (datetime.now() - save_start).total_seconds()
-            logger.error(f"[DB 저장] ✗ 글로벌 데이터 저장 실패 (소요시간: {save_duration:.3f}초): {e}")
+            logger.error(f"[DB 저장] 글로벌 데이터 저장 실패 (소요시간: {save_duration:.3f}초): {e}")
 
     def _save_coingecko_data(self, data: list):
         """
@@ -1319,7 +1319,7 @@ class MarketIndexScheduler:
                 
                 repo.bulk_upsert([coin_data])
                 save_duration = (datetime.now() - save_start).total_seconds()
-                logger.info(f"[DB 저장] ✓ {api_source.upper()} 데이터 저장 완료: {len(data)}개 코인 (소요시간: {save_duration:.3f}초)")
+                logger.info(f"[DB 저장] {api_source.upper()} 데이터 저장 완료: {len(data)}개 코인 (소요시간: {save_duration:.3f}초)")
                 logger.debug(f"[DB 저장] 저장된 JSON 크기: {len(json.dumps(data))} bytes")
                 
             finally:
@@ -1327,7 +1327,7 @@ class MarketIndexScheduler:
                 
         except Exception as e:
             save_duration = (datetime.now() - save_start).total_seconds()
-            logger.error(f"[DB 저장] ✗ {api_source.upper()} 데이터 저장 실패 (소요시간: {save_duration:.3f}초): {e}")
+            logger.error(f"[DB 저장] {api_source.upper()} 데이터 저장 실패 (소요시간: {save_duration:.3f}초): {e}")
 
     def _get_upbit_data_from_db(self) -> dict:
         """DB에서 업비트 지수 데이터 조회"""

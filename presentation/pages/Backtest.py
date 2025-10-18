@@ -13,6 +13,10 @@ from datetime import datetime, timedelta
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
+# 전역 스타일 적용
+from presentation.styles.global_styles import apply_global_styles
+apply_global_styles()
+
 from infrastructure.database.connection import get_db_session
 from application.services.strategy_service import StrategyService
 from infrastructure.exchanges.upbit_client import UpbitClient

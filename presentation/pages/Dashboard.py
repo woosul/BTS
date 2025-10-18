@@ -12,7 +12,7 @@ from decimal import Decimal
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-# 전역 스타일 적용 (페이지별로 필수)
+# 전역 스타일 적용
 from presentation.styles.global_styles import apply_global_styles
 apply_global_styles()
 
@@ -62,23 +62,20 @@ def get_services():
     )
 
 def main():
+    from datetime import datetime
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
     st.title("대시보드")
+    st.markdown(f'''
+        <p style="font-size: 0.875rem; color: rgba(250, 250, 250, 0.6); margin-bottom: 1rem; font-family: 'Noto Sans KR', sans-serif;">
+            마지막 업데이트 | <span id="last-update-time">{now}</span> | WebSocket 실시간 연동 | 설정 →
+        </p>
+    ''', unsafe_allow_html=True)
+    st.markdown("---")
     
     # 세션 상태 초기화 (KRW 토글)
     if 'show_krw' not in st.session_state:
         st.session_state.show_krw = False
-    
-    # 마지막 업데이트 타임스탬프 표시 (시간 부분만 업데이트 가능하도록 span으로 분리)
-    from datetime import datetime
-    st.markdown(
-        f'<p style="font-size: 0.875rem; color: rgba(250, 250, 250, 0.6);">'
-        f'마지막 업데이트 | <span id="last-update-timestamp">{datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</span> | WebSocket 실시간 연동 | '
-        f'<a href="/Setting" style="color: rgba(250, 250, 250, 0.6);">설정 →</a>'
-        f'</p>',
-        unsafe_allow_html=True
-    )
-    
-    st.markdown("---")
 
     # 업비트 종합지수 + USD 환율 (DB에서 조회)
     try:
@@ -293,32 +290,49 @@ def main():
                 def toggle_currency():
                     st.session_state.show_krw = st.session_state.krw_toggle
                 
-                # 타이틀과 토글 컨테이너를 HTML로 배치 ("Powered by CoinGecko" 방식 참조)
-                st.markdown("""
-                <div style='display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;'>
-                    <div style='color: #66686a; font-size: 14px; font-weight: 600;'>개별 코인 추세 (24h 변동)</div>
-                    <div></div>
-                </div>
-                """, unsafe_allow_html=True)
+                # KRW 토글 HTML (JavaScript로 세션 상태 변경)
+                krw_toggle_html = f'''
+                    <label style="display: flex; align-items: center; cursor: pointer; user-select: none;">
+                        <input type="checkbox" id="krw-toggle" {'checked' if st.session_state.show_krw else ''} 
+                               style="appearance: none; width: 40px; height: 20px; background: #4a4a4a; border-radius: 10px; position: relative; cursor: pointer; outline: none; transition: background 0.3s;">
+                        <style>
+                            #krw-toggle::before {{
+                                content: '';
+                                position: absolute;
+                                width: 16px;
+                                height: 16px;
+                                border-radius: 50%;
+                                background: white;
+                                top: 2px;
+                                left: 2px;
+                                transition: transform 0.3s;
+                            }}
+                            #krw-toggle:checked {{
+                                background: #00a67e;
+                            }}
+                            #krw-toggle:checked::before {{
+                                transform: translateX(20px);
+                            }}
+                        </style>
+                        <span style="margin-left: 8px; font-size: 12px; color: #66686a;">KRW</span>
+                    </label>
+                    <script>
+                        document.getElementById('krw-toggle').addEventListener('change', function(e) {{
+                            // Streamlit 세션 상태 업데이트를 위해 페이지 리로드
+                            const params = new URLSearchParams(window.location.search);
+                            params.set('show_krw', e.target.checked ? '1' : '0');
+                            window.location.search = params.toString();
+                        }});
+                    </script>
+                '''
                 
-                # 토글 스위치 (Streamlit 위젯)
-                st.toggle("KRW", value=st.session_state.show_krw, key="krw_toggle", on_change=toggle_currency)
-                
-                # Hidden div for currency mode (JavaScript가 읽음)
-                st.markdown(f'<div id="currency-mode" data-krw="{st.session_state.show_krw}" style="display:none;"></div>', unsafe_allow_html=True)
-                
-                # 메트릭 카드 렌더링 (title 없이)
-                cols = st.columns(5, gap="small")
-                for idx, metric in enumerate(coin_metrics):
-                    col_idx = idx % 5
-                    with cols[col_idx]:
-                        from presentation.components.metric_cards import render_metric_card
-                        render_metric_card(
-                            label=metric.get("label", ""),
-                            value=metric.get("value", "N/A"),
-                            delta=metric.get("delta", None),
-                            card_id=metric.get("card_id", None)
-                        )
+                # render_metric_card_group에 right_content로 토글 전달
+                render_metric_card_group(
+                    title="개별 코인 추세 (24h 변동)",
+                    metrics=coin_metrics,
+                    columns=5,
+                    right_content=krw_toggle_html
+                )
             else:
                 st.info("표시할 코인 데이터가 없습니다.")
         else:
